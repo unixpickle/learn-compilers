@@ -45,12 +45,5 @@ func testSimpleGrammarForText(
 ) async throws {
   var parser = parser
   let result = try await parser.read(StringParserReader(text))
-  #expect(reconstructTextOfTree(result) == text)
-}
-
-func reconstructTextOfTree(_ match: ParserMatch<String, SimpleGrammarKeyword>) -> String {
-  switch match {
-  case .terminal(let x): x
-  case .nonTerminal(_, let rhs): rhs.map(reconstructTextOfTree).joined()
-  }
+  #expect(toText(match: result) == text)
 }

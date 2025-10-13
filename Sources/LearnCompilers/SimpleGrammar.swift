@@ -95,6 +95,7 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
         lhs: .funcArgDecl,
         rhs: [
           .nonTerminal(.identifier),
+          .nonTerminal(.maybeWhitespace),
           .terminal(":"),
           .nonTerminal(.maybeWhitespace),
           .nonTerminal(.typeIdentifier),
