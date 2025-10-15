@@ -2,8 +2,22 @@ import LearnParsers
 
 public typealias ASTMatch = ParserMatch<String, SimpleGrammarKeyword>
 
+public enum ChildrenOrCode {
+  case children([ASTNode])
+  case code(String)
+}
+
 public protocol ASTNode {
-  var codeString: String { get }
+  var contents: ChildrenOrCode { get }
+}
+
+extension ASTNode {
+  public var codeString: String {
+    switch self.contents {
+    case .code(let x): x
+    case .children(let c): c.map { $0.codeString }.joined()
+    }
+  }
 }
 
 public struct AST: ASTNode {
@@ -14,7 +28,7 @@ public struct AST: ASTNode {
       self.name = name
     }
 
-    public var codeString: String { name }
+    public var contents: ChildrenOrCode { .code(name) }
   }
 
   public struct TypeIdentifier: ASTNode {
@@ -24,7 +38,7 @@ public struct AST: ASTNode {
       self.name = name
     }
 
-    public var codeString: String { name }
+    public var contents: ChildrenOrCode { .code(name) }
   }
 
   public struct Raw: ASTNode {
@@ -34,7 +48,7 @@ public struct AST: ASTNode {
       self.text = text
     }
 
-    public var codeString: String { text }
+    public var contents: ChildrenOrCode { .code(text) }
   }
 
   public struct FuncDecl: ASTNode {
@@ -48,8 +62,13 @@ public struct AST: ASTNode {
       public var trailingWhitespace: Raw
       public var comma: Raw?
 
-      public var codeString: String {
-        "\(leadingWhitespace.codeString)\(identifier.codeString)\(whitespace1.codeString)\(colon.codeString)\(whitespace2.codeString)\(typeID.codeString)\(trailingWhitespace.codeString)\(comma?.codeString ?? "")"
+      public var contents: ChildrenOrCode {
+        .children(
+          [
+            leadingWhitespace, identifier, whitespace1, colon, whitespace2, typeID,
+            trailingWhitespace,
+          ] + maybeList(comma)
+        )
       }
 
       internal init(leadingWhitespace: Raw, trailingWhitespace: Raw, comma: Raw?, rhs: [ASTMatch]) {
@@ -71,8 +90,8 @@ public struct AST: ASTNode {
       public var whitespace2: ASTNode
       public var retType: TypeIdentifier
 
-      public var codeString: String {
-        "\(whitespace1.codeString)\(arrow.codeString)\(whitespace2.codeString)\(retType.codeString)"
+      public var contents: ChildrenOrCode {
+        .children([whitespace1, arrow, whitespace2, retType])
       }
     }
 
@@ -88,12 +107,12 @@ public struct AST: ASTNode {
     public var trailingWhitespace: Raw
     public var block: Block
 
-    public var codeString: String {
-      let blocks: [ASTNode] =
+    public var contents: ChildrenOrCode {
+      .children(
         [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + arguments + [
           closeParenthesis
-        ] + (retType == nil ? [] : [retType!]) + [trailingWhitespace, block]
-      return blocks.map { $0.codeString }.joined()
+        ] + maybeList(retType) + [trailingWhitespace, block]
+      )
     }
 
     internal init(leadingWhitespace: Raw, rhs: [ASTMatch]) {
@@ -168,13 +187,13 @@ public struct AST: ASTNode {
 
   public struct Block: ASTNode {
     // TODO: make this actually contain something.
-    public var contents: String
+    public var textContent: String
 
     internal init(rhs: [ASTMatch]) {
-      self.contents = rhs.map(toText).joined()
+      self.textContent = rhs.map(toText).joined()
     }
 
-    public var codeString: String { contents }
+    public var contents: ChildrenOrCode { .code(textContent) }
   }
 
   public struct IfStatement: ASTNode {
@@ -186,18 +205,17 @@ public struct AST: ASTNode {
     public var whitespace2: Raw
     public var block: Block
 
-    public var codeString: String {
-      let nodes: [ASTNode] = [
+    public var contents: ChildrenOrCode {
+      .children([
         ifText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
-      ]
-      return nodes.map { $0.codeString }.joined()
+      ])
     }
   }
 
   public struct IntLiteral: ASTNode {
     public var text: String
 
-    public var codeString: String { text }
+    public var contents: ChildrenOrCode { .code(text) }
 
     public init(text: String) {
       self.text = text
@@ -205,18 +223,14 @@ public struct AST: ASTNode {
   }
 
   public struct FuncCall: ASTNode {
-    public struct FuncArg {
+    public struct FuncArg: ASTNode {
       public var whitespace1: Raw
       public var expression: Expression
       public var whitespace2: Raw
       public var comma: Raw?
 
-      public var codeString: String {
-        var result = "\(whitespace1.codeString)\(expression.codeString)\(whitespace2.codeString)"
-        if let c = comma {
-          result += c.codeString
-        }
-        return result
+      public var contents: ChildrenOrCode {
+        .children([whitespace1, expression, whitespace2] + maybeList(comma))
       }
     }
 
@@ -225,13 +239,8 @@ public struct AST: ASTNode {
     public var args: [FuncArg]
     public var closeParenthesis: Raw
 
-    public var codeString: String {
-      var result = "\(identifier.codeString)\(openParenthesis.codeString)"
-      for arg in args {
-        result += arg.codeString
-      }
-      result += closeParenthesis.codeString
-      return result
+    public var contents: ChildrenOrCode {
+      .children([identifier, openParenthesis] + args + [closeParenthesis])
     }
   }
 
@@ -240,11 +249,11 @@ public struct AST: ASTNode {
     case identifier(Identifier)
     case intLiteral(IntLiteral)
 
-    public var codeString: String {
+    public var contents: ChildrenOrCode {
       switch self {
-      case .funcCall(let c): c.codeString
-      case .identifier(let c): c.codeString
-      case .intLiteral(let c): c.codeString
+      case .funcCall(let c): .children([c])
+      case .identifier(let c): .children([c])
+      case .intLiteral(let c): .children([c])
       }
     }
   }
@@ -252,13 +261,8 @@ public struct AST: ASTNode {
   public var functions: [FuncDecl]
   public var trailingWhitespace: Raw
 
-  public var codeString: String {
-    var ret = ""
-    for x in functions {
-      ret += x.codeString
-    }
-    ret += trailingWhitespace.codeString
-    return ret
+  public var contents: ChildrenOrCode {
+    .children(functions + [trailingWhitespace])
   }
 
   public init(functions: [FuncDecl], trailingWhitespace: Raw) {
@@ -301,5 +305,13 @@ internal func toText(match: ASTMatch) -> String {
   switch match {
   case .terminal(let x): x
   case .nonTerminal(_, let rhs): rhs.map(toText).joined()
+  }
+}
+
+private func maybeList<T>(_ x: T?) -> [T] {
+  if let x = x {
+    [x]
+  } else {
+    []
   }
 }
