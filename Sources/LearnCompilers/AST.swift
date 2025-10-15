@@ -85,14 +85,14 @@ public struct AST: ASTNode {
     public var arguments: [ArgDecl]
     public var closeParenthesis: Raw
     public var retType: RetDecl?
-    public var trailingSpace: Raw
+    public var trailingWhitespace: Raw
     public var block: Block
 
     public var codeString: String {
       let blocks: [ASTNode] =
         [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + arguments + [
           closeParenthesis
-        ] + (retType == nil ? [] : [retType!]) + [trailingSpace, block]
+        ] + (retType == nil ? [] : [retType!]) + [trailingWhitespace, block]
       return blocks.map { $0.codeString }.joined()
     }
 
@@ -147,7 +147,7 @@ public struct AST: ASTNode {
         fatalError()
       }
       if retRHS.count == 1 {
-        trailingSpace = Raw(text: toText(match: retRHS[0]))
+        trailingWhitespace = Raw(text: toText(match: retRHS[0]))
         retType = nil
       } else {
         retType = RetDecl(
@@ -156,10 +156,13 @@ public struct AST: ASTNode {
           whitespace2: Raw(text: toText(match: retRHS[3])),
           retType: TypeIdentifier(name: toText(match: retRHS[4]))
         )
-        trailingSpace = Raw(text: toText(match: retRHS[5]))
+        trailingWhitespace = Raw(text: toText(match: retRHS[5]))
       }
 
-      self.block = Block(contents: toText(match: rhs[9]))
+      guard case .nonTerminal(.codeBlock, let blockRHS) = rhs[9] else {
+        fatalError()
+      }
+      self.block = Block(rhs: blockRHS)
     }
   }
 
@@ -167,11 +170,83 @@ public struct AST: ASTNode {
     // TODO: make this actually contain something.
     public var contents: String
 
-    public init(contents: String) {
-      self.contents = contents
+    internal init(rhs: [ASTMatch]) {
+      self.contents = rhs.map(toText).joined()
     }
 
     public var codeString: String { contents }
+  }
+
+  public struct IfStatement: ASTNode {
+    public var ifText: Raw
+    public var whitespace1: Raw
+    public var openParenthesis: Raw
+    public var expression: Expression
+    public var closeParenthesis: Raw
+    public var whitespace2: Raw
+    public var block: Block
+
+    public var codeString: String {
+      let nodes: [ASTNode] = [
+        ifText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
+      ]
+      return nodes.map { $0.codeString }.joined()
+    }
+  }
+
+  public struct IntLiteral: ASTNode {
+    public var text: String
+
+    public var codeString: String { text }
+
+    public init(text: String) {
+      self.text = text
+    }
+  }
+
+  public struct FuncCall: ASTNode {
+    public struct FuncArg {
+      public var whitespace1: Raw
+      public var expression: Expression
+      public var whitespace2: Raw
+      public var comma: Raw?
+
+      public var codeString: String {
+        var result = "\(whitespace1.codeString)\(expression.codeString)\(whitespace2.codeString)"
+        if let c = comma {
+          result += c.codeString
+        }
+        return result
+      }
+    }
+
+    public var identifier: Identifier
+    public var openParenthesis: Raw
+    public var args: [FuncArg]
+    public var closeParenthesis: Raw
+
+    public var codeString: String {
+      var result = "\(identifier.codeString)\(openParenthesis.codeString)"
+      for arg in args {
+        result += arg.codeString
+      }
+      result += closeParenthesis.codeString
+      return result
+    }
+  }
+
+  public enum Expression: ASTNode {
+    indirect case funcCall(FuncCall)
+    case identifier(Identifier)
+    case intLiteral(IntLiteral)
+
+    public var codeString: String {
+      switch self {
+      case .funcCall(let c): c.codeString
+      case .identifier(let c): c.codeString
+      case .intLiteral(let c): c.codeString
+      }
+    }
   }
 
   public var functions: [FuncDecl]
@@ -191,10 +266,16 @@ public struct AST: ASTNode {
     self.trailingWhitespace = trailingWhitespace
   }
 
-  internal init(rhs: [ASTMatch]) {
+  /// Create an ASTNode given a match on an entire code file with SimpleGrammar.
+  /// If this is not a full match for the correct grammar, behavior is undefined.
+  public init(match: ASTMatch) {
+    guard case .nonTerminal(.codeFile, let rawRHS) = match else {
+      fatalError("invalid root match")
+    }
+
     functions = []
 
-    var rhs = rhs
+    var rhs = rawRHS
     while rhs.count > 1 {
       guard case .nonTerminal(_, let funcRHS) = rhs[1] else {
         fatalError()
@@ -207,70 +288,13 @@ public struct AST: ASTNode {
       }
       rhs = nextRHS
     }
-    self.trailingWhitespace = Raw(text: toText(match: rhs[0]))
+
+    trailingWhitespace = Raw(text: toText(match: rhs[0]))
   }
 }
 
 public enum ASTNodeError: Error {
   case unexpectedTerminal(terminal: String)
-}
-
-/// Create an ASTNode given a match on an entire code file with SimpleGrammar.
-/// If this is not a full match for the correct grammar, behavior is undefined.
-public func astNodeFor(
-  match: ASTMatch
-) -> ASTNode {
-  switch match {
-  case .nonTerminal(let lhs, let rhs):
-    switch lhs {
-    case .codeFile:
-      return AST(rhs: rhs)
-    case .typeIdentifier:
-      fatalError()
-    case .varDecl:
-      fatalError()
-    case .varAssign:
-      fatalError()
-    case .expression:
-      fatalError()
-    case .intLiteral:
-      fatalError()
-    case .strLiteral:
-      fatalError()
-    case .maybeIntLiteral:
-      fatalError()
-    case .identifier:
-      fatalError()
-    case .maybeIdentifier:
-      fatalError()
-    case .funcDecl:
-      fatalError()
-    case .funcArgDeclList:
-      fatalError()
-    case .funcArgDecl:
-      fatalError()
-    case .funcRetDecl:
-      fatalError()
-    case .funcCall:
-      fatalError()
-    case .funcCallArgList:
-      fatalError()
-    case .maybeWhitespace:
-      fatalError()
-    case .whitespace:
-      fatalError()
-    case .ifStatement:
-      fatalError()
-    case .codeBlock:
-      fatalError()
-    case .codeBlockStatements:
-      fatalError()
-    case .codeBlockStatement:
-      fatalError()
-    }
-  case .terminal(let text):
-    fatalError("unexpected terminal: \"\(text)\"")
-  }
 }
 
 internal func toText(match: ASTMatch) -> String {
