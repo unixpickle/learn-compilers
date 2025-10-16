@@ -24,8 +24,11 @@ public struct AST: ASTNode {
   public struct Identifier: ASTNode {
     public var name: String
 
-    public init(name: String) {
-      self.name = name
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.identifier, _) = match else {
+        fatalError()
+      }
+      self.name = toText(match: match)
     }
 
     public var contents: ChildrenOrCode { .code(name) }
@@ -34,8 +37,11 @@ public struct AST: ASTNode {
   public struct TypeIdentifier: ASTNode {
     public var name: String
 
-    public init(name: String) {
-      self.name = name
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.typeIdentifier, _) = match else {
+        fatalError()
+      }
+      self.name = toText(match: match)
     }
 
     public var contents: ChildrenOrCode { .code(name) }
@@ -44,8 +50,12 @@ public struct AST: ASTNode {
   public struct Raw: ASTNode {
     public var text: String
 
-    public init(text: String) {
-      self.text = text
+    internal init(match: ASTMatch) {
+      self.text = toText(match: match)
+    }
+
+    internal init(matches: some Sequence<ASTMatch>) {
+      self.text = matches.map { toText(match: $0) }.joined()
     }
 
     public var contents: ChildrenOrCode { .code(text) }
@@ -75,12 +85,11 @@ public struct AST: ASTNode {
         self.leadingWhitespace = leadingWhitespace
         self.trailingWhitespace = trailingWhitespace
         self.comma = comma
-        self.identifier = Identifier(name: toText(match: rhs[0]))
-        self.whitespace1 = Raw(text: toText(match: rhs[1]))
-        self.colon = Raw(text: toText(match: rhs[2]))
-        self.whitespace2 = Raw(text: toText(match: rhs[3]))
-        self.typeID = TypeIdentifier(name: toText(match: rhs[4]))
-
+        self.identifier = Identifier(match: rhs[0])
+        self.whitespace1 = Raw(match: rhs[1])
+        self.colon = Raw(match: rhs[2])
+        self.whitespace2 = Raw(match: rhs[3])
+        self.typeID = TypeIdentifier(match: rhs[4])
       }
     }
 
@@ -117,11 +126,11 @@ public struct AST: ASTNode {
 
     internal init(leadingWhitespace: Raw, rhs: [ASTMatch]) {
       self.leadingWhitespace = leadingWhitespace
-      fn = Raw(text: rhs[..<2].map(toText).joined())
-      whitespace1 = Raw(text: toText(match: rhs[2]))
-      name = Identifier(name: toText(match: rhs[3]))
-      whitespace2 = Raw(text: toText(match: rhs[4]))
-      openParenthesis = Raw(text: toText(match: rhs[5]))
+      fn = Raw(matches: rhs[..<2])
+      whitespace1 = Raw(match: rhs[2])
+      name = Identifier(match: rhs[3])
+      whitespace2 = Raw(match: rhs[4])
+      openParenthesis = Raw(match: rhs[5])
 
       guard case .nonTerminal(.funcArgDeclList, let argDeclRHS) = rhs[6] else {
         fatalError()
@@ -135,9 +144,9 @@ public struct AST: ASTNode {
         }
         arguments.append(
           ArgDecl(
-            leadingWhitespace: Raw(text: toText(match: argDecl[0])),
-            trailingWhitespace: Raw(text: toText(match: argDecl[2])),
-            comma: Raw(text: toText(match: argDecl[3])),
+            leadingWhitespace: Raw(match: argDecl[0]),
+            trailingWhitespace: Raw(match: argDecl[2]),
+            comma: Raw(match: argDecl[3]),
             rhs: argRHS
           )
         )
@@ -152,48 +161,85 @@ public struct AST: ASTNode {
         }
         arguments.append(
           ArgDecl(
-            leadingWhitespace: Raw(text: toText(match: argDecl[0])),
-            trailingWhitespace: Raw(text: toText(match: argDecl[2])),
+            leadingWhitespace: Raw(match: argDecl[0]),
+            trailingWhitespace: Raw(match: argDecl[2]),
             comma: nil,
             rhs: argRHS
           )
         )
       }
 
-      closeParenthesis = Raw(text: toText(match: rhs[7]))
+      closeParenthesis = Raw(match: rhs[7])
 
       guard case .nonTerminal(.funcRetDecl, let retRHS) = rhs[8] else {
         fatalError()
       }
       if retRHS.count == 1 {
-        trailingWhitespace = Raw(text: toText(match: retRHS[0]))
+        trailingWhitespace = Raw(match: retRHS[0])
         retType = nil
       } else {
         retType = RetDecl(
-          whitespace1: Raw(text: toText(match: retRHS[0])),
-          arrow: Raw(text: retRHS[1...2].map(toText).joined()),
-          whitespace2: Raw(text: toText(match: retRHS[3])),
-          retType: TypeIdentifier(name: toText(match: retRHS[4]))
+          whitespace1: Raw(match: retRHS[0]),
+          arrow: Raw(matches: retRHS[1...2]),
+          whitespace2: Raw(match: retRHS[3]),
+          retType: TypeIdentifier(match: retRHS[4])
         )
-        trailingWhitespace = Raw(text: toText(match: retRHS[5]))
+        trailingWhitespace = Raw(match: retRHS[5])
       }
 
-      guard case .nonTerminal(.codeBlock, let blockRHS) = rhs[9] else {
-        fatalError()
-      }
-      self.block = Block(rhs: blockRHS)
+      self.block = Block(match: rhs[9])
     }
   }
 
   public struct Block: ASTNode {
-    // TODO: make this actually contain something.
-    public var textContent: String
+    public struct BlockStatement: ASTNode {
+      public var statement: Statement
+      public var trailingWhitespace: Raw?
 
-    internal init(rhs: [ASTMatch]) {
-      self.textContent = rhs.map(toText).joined()
+      public var contents: ChildrenOrCode {
+        .children([statement] + maybeList(trailingWhitespace))
+      }
     }
 
-    public var contents: ChildrenOrCode { .code(textContent) }
+    public var openBrace: Raw
+    public var whitespace: Raw
+    public var statements: [BlockStatement]
+    public var closeBrace: Raw
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.codeBlock, let rhs) = match else {
+        fatalError()
+      }
+      openBrace = Raw(match: rhs[0])
+      whitespace = Raw(match: rhs[1])
+      closeBrace = Raw(match: rhs[3])
+
+      guard case .nonTerminal(.codeBlockStatements, let startStatements) = rhs[2] else {
+        fatalError()
+      }
+      statements = []
+      var statementsRHS = startStatements
+      while statementsRHS.count == 3 {
+        statements.append(
+          .init(
+            statement: Statement.from(match: statementsRHS[0]),
+            trailingWhitespace: Raw(match: statementsRHS[1])
+          )
+        )
+        guard case .nonTerminal(.codeBlockStatements, let n) = statementsRHS[2] else {
+          fatalError()
+        }
+        statementsRHS = n
+      }
+      if statementsRHS.count == 1 {
+        statements.append(
+          .init(statement: Statement.from(match: statementsRHS[0]), trailingWhitespace: nil))
+      }
+    }
+
+    public var contents: ChildrenOrCode {
+      .children([openBrace, whitespace] + statements + [closeBrace])
+    }
   }
 
   public struct IfStatement: ASTNode {
@@ -210,6 +256,76 @@ public struct AST: ASTNode {
         ifText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
       ])
     }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.ifStatement, let rhs) = match else {
+        fatalError()
+      }
+      ifText = Raw(matches: rhs[0..<3])
+      whitespace1 = Raw(match: rhs[3])
+      openParenthesis = Raw(match: rhs[4])
+      expression = Expression.from(match: rhs[5])
+      closeParenthesis = Raw(match: rhs[6])
+      whitespace2 = Raw(match: rhs[7])
+      block = Block(match: rhs[8])
+    }
+  }
+
+  public struct VarDecl: ASTNode {
+    public var identifier: Identifier
+    public var whitespace1: Raw
+    public var colon: Raw
+    public var whitespace2: Raw
+    public var typeID: TypeIdentifier
+    public var whitespace3: Raw
+    public var equals: Raw
+    public var whitespace4: Raw
+    public var expression: Expression
+
+    public var contents: ChildrenOrCode {
+      .children([
+        identifier, whitespace1, colon, whitespace2, typeID, whitespace3, equals, whitespace4,
+        expression,
+      ])
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.varDecl, let rhs) = match else {
+        fatalError()
+      }
+      identifier = Identifier(match: rhs[0])
+      whitespace1 = Raw(match: rhs[1])
+      colon = Raw(match: rhs[2])
+      whitespace2 = Raw(match: rhs[3])
+      typeID = TypeIdentifier(match: rhs[4])
+      whitespace3 = Raw(match: rhs[5])
+      equals = Raw(match: rhs[6])
+      whitespace4 = Raw(match: rhs[7])
+      expression = Expression.from(match: rhs[8])
+    }
+  }
+
+  public struct VarAssign: ASTNode {
+    public var identifier: Identifier
+    public var whitespace1: Raw
+    public var equals: Raw
+    public var whitespace2: Raw
+    public var expression: Expression
+
+    public var contents: ChildrenOrCode {
+      .children([identifier, whitespace1, equals, whitespace2, expression])
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.varDecl, let rhs) = match else {
+        fatalError()
+      }
+      identifier = Identifier(match: rhs[0])
+      whitespace1 = Raw(match: rhs[1])
+      equals = Raw(match: rhs[2])
+      whitespace2 = Raw(match: rhs[3])
+      expression = Expression.from(match: rhs[4])
+    }
   }
 
   public struct IntLiteral: ASTNode {
@@ -217,8 +333,8 @@ public struct AST: ASTNode {
 
     public var contents: ChildrenOrCode { .code(text) }
 
-    public init(text: String) {
-      self.text = text
+    internal init(match: ASTMatch) {
+      self.text = toText(match: match)
     }
   }
 
@@ -242,6 +358,43 @@ public struct AST: ASTNode {
     public var contents: ChildrenOrCode {
       .children([identifier, openParenthesis] + args + [closeParenthesis])
     }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.funcCall, let rhs) = match else {
+        fatalError()
+      }
+      identifier = Identifier(match: rhs[0])
+      openParenthesis = Raw(match: rhs[1])
+      closeParenthesis = Raw(match: rhs[3])
+      guard case .nonTerminal(.funcCallArgList, let outerArgList) = rhs[2] else {
+        fatalError()
+      }
+      args = []
+      var curArgList = outerArgList
+      while curArgList.count == 5 {
+        args.append(
+          .init(
+            whitespace1: Raw(match: curArgList[0]),
+            expression: Expression.from(match: curArgList[1]),
+            whitespace2: Raw(match: curArgList[2]),
+            comma: Raw(match: curArgList[3])
+          )
+        )
+        guard case .nonTerminal(.funcCallArgList, let r) = curArgList[4] else {
+          fatalError()
+        }
+        curArgList = r
+      }
+      if curArgList.count == 3 {
+        args.append(
+          .init(
+            whitespace1: Raw(match: curArgList[0]),
+            expression: Expression.from(match: curArgList[1]),
+            whitespace2: Raw(match: curArgList[2])
+          )
+        )
+      }
+    }
   }
 
   public enum Expression: ASTNode {
@@ -254,6 +407,49 @@ public struct AST: ASTNode {
       case .funcCall(let c): .children([c])
       case .identifier(let c): .children([c])
       case .intLiteral(let c): .children([c])
+      }
+    }
+
+    internal static func from(match: ASTMatch) -> Self {
+      guard case .nonTerminal(.expression, let rhs) = match else {
+        fatalError()
+      }
+      assert(rhs.count == 1)
+      switch rhs[0] {
+      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]))
+      case .nonTerminal(.identifier, _): return .identifier(Identifier(match: rhs[0]))
+      case .nonTerminal(.intLiteral, _): return .intLiteral(IntLiteral(match: rhs[0]))
+      default: fatalError()
+      }
+    }
+  }
+
+  public enum Statement: ASTNode {
+    indirect case funcCall(FuncCall)
+    case varDecl(VarDecl)
+    case varAssign(VarAssign)
+    case ifStatement(IfStatement)
+
+    public var contents: ChildrenOrCode {
+      switch self {
+      case .funcCall(let c): .children([c])
+      case .varDecl(let c): .children([c])
+      case .varAssign(let c): .children([c])
+      case .ifStatement(let c): .children([c])
+      }
+    }
+
+    internal static func from(match: ASTMatch) -> Self {
+      guard case .nonTerminal(.codeBlockStatement, let rhs) = match else {
+        fatalError()
+      }
+      assert(rhs.count == 1)
+      switch rhs[0] {
+      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]))
+      case .nonTerminal(.varDecl, _): return .varDecl(VarDecl(match: rhs[0]))
+      case .nonTerminal(.varAssign, _): return .varAssign(VarAssign(match: rhs[0]))
+      case .nonTerminal(.ifStatement, _): return .ifStatement(IfStatement(match: rhs[0]))
+      default: fatalError()
       }
     }
   }
@@ -285,7 +481,7 @@ public struct AST: ASTNode {
         fatalError()
       }
       functions.append(
-        FuncDecl(leadingWhitespace: Raw(text: toText(match: rhs[0])), rhs: funcRHS)
+        FuncDecl(leadingWhitespace: Raw(match: rhs[0]), rhs: funcRHS)
       )
       guard case .nonTerminal(.codeFile, let nextRHS) = rhs[2] else {
         fatalError()
@@ -293,7 +489,7 @@ public struct AST: ASTNode {
       rhs = nextRHS
     }
 
-    trailingWhitespace = Raw(text: toText(match: rhs[0]))
+    trailingWhitespace = Raw(match: rhs[0])
   }
 }
 
