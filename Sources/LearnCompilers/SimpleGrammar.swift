@@ -6,6 +6,7 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case varDecl
   case varAssign
   case expression
+  case maybeExpression
   case intLiteral
   case strLiteral
   case maybeIntLiteral
@@ -20,6 +21,9 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case maybeWhitespace
   case whitespace
   case ifStatement
+  case whileLoop
+  case breakStatement
+  case returnStatement
   case codeBlock
   case codeBlockStatements
   case codeBlockStatement
@@ -98,15 +102,27 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.codeBlockStatements, [S.codeBlockStatement]),
       rule(.codeBlockStatements, [S.codeBlockStatement, S.whitespace, S.codeBlockStatements]),
       rule(.codeBlockStatement, [S.ifStatement]),
+      rule(.codeBlockStatement, [S.whileLoop]),
       rule(.codeBlockStatement, [S.varDecl]),
       rule(.codeBlockStatement, [S.varAssign]),
       rule(.codeBlockStatement, [S.funcCall]),
+      rule(.codeBlockStatement, [S.breakStatement]),
+      rule(.codeBlockStatement, [S.returnStatement]),
 
       // Statements
       rule(
         .ifStatement,
-        ["?", "i", "f", S.whitespace, "(", S.expression, ")", S.maybeWhitespace, S.codeBlock]
+        ["i", "f", "?", S.whitespace, "(", S.expression, ")", S.maybeWhitespace, S.codeBlock]
       ),
+      rule(
+        .whileLoop,
+        [
+          "w", "h", "i", "l", "e", "?",
+          S.whitespace, "(", S.expression, ")", S.maybeWhitespace, S.codeBlock,
+        ]
+      ),
+      rule(.breakStatement, ["b", "r", "e", "a", "k", "!", "(", ")"]),
+      rule(.returnStatement, ["r", "e", "t", "u", "r", "n", "!", "(", S.maybeExpression, ")"]),
       rule(
         .varDecl,
         [
@@ -137,6 +153,8 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.expression, [S.funcCall]),
       rule(.expression, [S.identifier]),
       rule(.expression, [S.intLiteral]),
+      rule(.maybeExpression, [S.expression]),
+      rule(.maybeExpression, []),
 
       // Helper used by identifier to enforce non-emptiness
       rule(.maybeIdentifier, [S.identifier]),

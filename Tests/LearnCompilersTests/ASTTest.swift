@@ -16,7 +16,7 @@ import Testing
   var ast = AST(match: match)
   #expect(ast.codeString == code)
 
-  code = "fn main() -> int {\n  x: int = 3\n  ?if (eq(x, 3)) {\n    print(3)\n  }\n  print(0)\n}"
+  code = "fn main() -> int {\n  x: int = 3\n  if? (eq(x, 3)) {\n    print(3)\n  }\n  print(0)\n}"
   match = try await parseCode(code)
   ast = AST(match: match)
   #expect(ast.codeString == code)
@@ -42,6 +42,22 @@ import Testing
   #expect(ast.codeString == code)
 
   code = "\nfn main (z: int, x: str )->str{\n  print(0)\n}\n\nfn foo(x: int) -> str {}"
+  match = try await parseCode(code)
+  ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  code =
+    "fn main(x: int) -> int {\n  x: int = 3\n  while? (lt(x, 5)) {\n    print(x)\n  x = add(x, 1)\n  break!()\n  }\n  print(x)\n}"
+  match = try await parseCode(code)
+  ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  code = "fn main(x: int) -> int {\n  x: int = 3\n  return!(add(x, 3))\n}"
+  match = try await parseCode(code)
+  ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  code = "fn main(x: int) {\n  x: int = 3\n  return!()\n}"
   match = try await parseCode(code)
   ast = AST(match: match)
   #expect(ast.codeString == code)

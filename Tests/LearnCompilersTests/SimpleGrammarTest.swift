@@ -36,7 +36,33 @@ import Testing
   try await testSimpleGrammarForText(
     parser: parser,
     text:
-      "fn main(x: int) -> int {\n  x: int = 3\n  ?if (x) {\n    print(0)\n  }\n  print(1)\n}"
+      "fn main(x: int) -> int {\n  x: int = 3\n  if? (x) {\n    print(0)\n  }\n  print(1)\n}"
+  )
+
+  // While loop
+  try await testSimpleGrammarForText(
+    parser: parser,
+    text:
+      "fn main(x: int) -> int {\n  x: int = 3\n  while? (lt(x, 5)) {\n    print(x)\n  x = add(x, 1)\n  }\n  print(x)\n}"
+  )
+
+  // While loop with break
+  try await testSimpleGrammarForText(
+    parser: parser,
+    text:
+      "fn main(x: int) -> int {\n  x: int = 3\n  while? (lt(x, 5)) {\n    print(x)\n  x = add(x, 1)\n  break!()\n  }\n  print(x)\n}"
+  )
+
+  // Return
+  try await testSimpleGrammarForText(
+    parser: parser,
+    text: "fn main(x: int) -> int {\n  x: int = 3\n  return!(add(x, 3))\n}"
+  )
+
+  // Return (empty)
+  try await testSimpleGrammarForText(
+    parser: parser,
+    text: "fn main(x: int) {\n  x: int = 3\n  return!()\n}"
   )
 }
 

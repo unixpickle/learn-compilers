@@ -271,6 +271,78 @@ public struct AST: ASTNode {
     }
   }
 
+  public struct WhileLoop: ASTNode {
+    public var whileText: Raw
+    public var whitespace1: Raw
+    public var openParenthesis: Raw
+    public var expression: Expression
+    public var closeParenthesis: Raw
+    public var whitespace2: Raw
+    public var block: Block
+
+    public var contents: ChildrenOrCode {
+      .children([
+        whileText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
+      ])
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.whileLoop, let rhs) = match else {
+        fatalError()
+      }
+      whileText = Raw(matches: rhs[0..<6])
+      whitespace1 = Raw(match: rhs[6])
+      openParenthesis = Raw(match: rhs[7])
+      expression = Expression.from(match: rhs[8])
+      closeParenthesis = Raw(match: rhs[9])
+      whitespace2 = Raw(match: rhs[10])
+      block = Block(match: rhs[11])
+    }
+  }
+
+  public struct ReturnStatement: ASTNode {
+    public var returnText: Raw
+    public var openParenthesis: Raw
+    public var expression: Expression?
+    public var closeParenthesis: Raw
+
+    public var contents: ChildrenOrCode {
+      .children([returnText, openParenthesis] + maybeList(expression) + [closeParenthesis])
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.returnStatement, let rhs) = match else {
+        fatalError()
+      }
+      returnText = Raw(matches: rhs[0..<7])
+      openParenthesis = Raw(match: rhs[7])
+      guard case .nonTerminal(.maybeExpression, let maybeExpr) = rhs[8] else {
+        fatalError()
+      }
+      if maybeExpr.isEmpty {
+        expression = nil
+      } else {
+        expression = Expression.from(match: maybeExpr[0])
+      }
+      closeParenthesis = Raw(match: rhs[9])
+    }
+  }
+
+  public struct BreakStatement: ASTNode {
+    public var breakText: Raw
+
+    public var contents: ChildrenOrCode {
+      .children([breakText])
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.breakStatement, let rhs) = match else {
+        fatalError()
+      }
+      breakText = Raw(matches: rhs)
+    }
+  }
+
   public struct VarDecl: ASTNode {
     public var identifier: Identifier
     public var whitespace1: Raw
@@ -317,7 +389,7 @@ public struct AST: ASTNode {
     }
 
     internal init(match: ASTMatch) {
-      guard case .nonTerminal(.varDecl, let rhs) = match else {
+      guard case .nonTerminal(.varAssign, let rhs) = match else {
         fatalError()
       }
       identifier = Identifier(match: rhs[0])
@@ -429,6 +501,9 @@ public struct AST: ASTNode {
     case varDecl(VarDecl)
     case varAssign(VarAssign)
     case ifStatement(IfStatement)
+    case whileLoop(WhileLoop)
+    case breakStatement(BreakStatement)
+    case returnStatement(ReturnStatement)
 
     public var contents: ChildrenOrCode {
       switch self {
@@ -436,6 +511,9 @@ public struct AST: ASTNode {
       case .varDecl(let c): .children([c])
       case .varAssign(let c): .children([c])
       case .ifStatement(let c): .children([c])
+      case .whileLoop(let c): .children([c])
+      case .breakStatement(let c): .children([c])
+      case .returnStatement(let c): .children([c])
       }
     }
 
@@ -449,6 +527,10 @@ public struct AST: ASTNode {
       case .nonTerminal(.varDecl, _): return .varDecl(VarDecl(match: rhs[0]))
       case .nonTerminal(.varAssign, _): return .varAssign(VarAssign(match: rhs[0]))
       case .nonTerminal(.ifStatement, _): return .ifStatement(IfStatement(match: rhs[0]))
+      case .nonTerminal(.whileLoop, _): return .whileLoop(WhileLoop(match: rhs[0]))
+      case .nonTerminal(.breakStatement, _): return .breakStatement(BreakStatement(match: rhs[0]))
+      case .nonTerminal(.returnStatement, _):
+        return .returnStatement(ReturnStatement(match: rhs[0]))
       default: fatalError()
       }
     }
