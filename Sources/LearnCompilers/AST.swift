@@ -5,10 +5,29 @@ public typealias ASTMatch = ParserMatch<String, SimpleGrammarKeyword>
 public enum ChildrenOrCode {
   case children([ASTNode])
   case code(String)
+
+  internal var children: [ASTNode]? {
+    guard case .children(let x) = self else {
+      return nil
+    }
+    return x
+  }
+
+  internal var code: String? {
+    guard case .code(let x) = self else {
+      return nil
+    }
+    return x
+  }
 }
 
 public protocol ASTNode {
-  var contents: ChildrenOrCode { get }
+  /// Starts as nil during a parse, but gets filled in during decoration.
+  var position: Position? { get set }
+
+  /// Determine the children or text of this node.
+  /// When setting contents, the structure (count and type) must be identical.
+  var contents: ChildrenOrCode { get set }
 }
 
 extension ASTNode {
@@ -22,6 +41,9 @@ extension ASTNode {
 
 public struct AST: ASTNode {
   public struct Identifier: ASTNode {
+    public var position: Position? = nil
+    public var variable: Variable? = nil
+
     public var name: String
 
     internal init(match: ASTMatch) {
@@ -31,10 +53,14 @@ public struct AST: ASTNode {
       self.name = toText(match: match)
     }
 
-    public var contents: ChildrenOrCode { .code(name) }
+    public var contents: ChildrenOrCode {
+      get { .code(name) }
+      set { name = newValue.code! }
+    }
   }
 
   public struct TypeIdentifier: ASTNode {
+    public var position: Position? = nil
     public var name: String
 
     internal init(match: ASTMatch) {
@@ -44,10 +70,14 @@ public struct AST: ASTNode {
       self.name = toText(match: match)
     }
 
-    public var contents: ChildrenOrCode { .code(name) }
+    public var contents: ChildrenOrCode {
+      get { .code(name) }
+      set { name = newValue.code! }
+    }
   }
 
   public struct Raw: ASTNode {
+    public var position: Position? = nil
     public var text: String
 
     internal init(match: ASTMatch) {
@@ -58,11 +88,15 @@ public struct AST: ASTNode {
       self.text = matches.map { toText(match: $0) }.joined()
     }
 
-    public var contents: ChildrenOrCode { .code(text) }
+    public var contents: ChildrenOrCode {
+      get { .code(text) }
+      set { text = newValue.code! }
+    }
   }
 
   public struct FuncDecl: ASTNode {
     public struct ArgDecl: ASTNode {
+      public var position: Position? = nil
       public var leadingWhitespace: Raw
       public var identifier: Identifier
       public var whitespace1: Raw
@@ -73,12 +107,28 @@ public struct AST: ASTNode {
       public var comma: Raw?
 
       public var contents: ChildrenOrCode {
-        .children(
-          [
-            leadingWhitespace, identifier, whitespace1, colon, whitespace2, typeID,
-            trailingWhitespace,
-          ] + maybeList(comma)
-        )
+        get {
+          .children(
+            [
+              leadingWhitespace, identifier, whitespace1, colon, whitespace2, typeID,
+              trailingWhitespace,
+            ] + maybeList(comma)
+          )
+        }
+        set {
+          let ch = newValue.children!
+          leadingWhitespace = ch[0] as! Raw
+          identifier = ch[1] as! Identifier
+          whitespace1 = ch[2] as! Raw
+          colon = ch[3] as! Raw
+          whitespace2 = ch[4] as! Raw
+          typeID = ch[5] as! TypeIdentifier
+          trailingWhitespace = ch[6] as! Raw
+          assert((ch.count == 8) == (comma != nil))
+          if comma != nil {
+            comma = (ch[7] as! Raw)
+          }
+        }
       }
 
       internal init(leadingWhitespace: Raw, trailingWhitespace: Raw, comma: Raw?, rhs: [ASTMatch]) {
@@ -94,16 +144,27 @@ public struct AST: ASTNode {
     }
 
     public struct RetDecl: ASTNode {
-      public var whitespace1: ASTNode
+      public var position: Position? = nil
+      public var whitespace1: Raw
       public var arrow: Raw
-      public var whitespace2: ASTNode
+      public var whitespace2: Raw
       public var retType: TypeIdentifier
 
       public var contents: ChildrenOrCode {
-        .children([whitespace1, arrow, whitespace2, retType])
+        get {
+          .children([whitespace1, arrow, whitespace2, retType])
+        }
+        set {
+          let ch = newValue.children!
+          whitespace1 = ch[0] as! Raw
+          arrow = ch[1] as! Raw
+          whitespace2 = ch[2] as! Raw
+          retType = ch[3] as! TypeIdentifier
+        }
       }
     }
 
+    public var position: Position? = nil
     public var leadingWhitespace: Raw
     public var fn: Raw
     public var whitespace1: Raw
@@ -117,11 +178,30 @@ public struct AST: ASTNode {
     public var block: Block
 
     public var contents: ChildrenOrCode {
-      .children(
-        [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + arguments + [
-          closeParenthesis
-        ] + maybeList(retType) + [trailingWhitespace, block]
-      )
+      get {
+        .children(
+          [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + arguments + [
+            closeParenthesis
+          ] + maybeList(retType) + [trailingWhitespace, block]
+        )
+      }
+      set {
+        let ch = newValue.children!
+        leadingWhitespace = ch[0] as! Raw
+        fn = ch[1] as! Raw
+        whitespace1 = ch[2] as! Raw
+        name = ch[3] as! Identifier
+        whitespace2 = ch[4] as! Raw
+        openParenthesis = ch[5] as! Raw
+        arguments = ch[6..<(6 + arguments.count)].map { $0 as! ArgDecl }
+        closeParenthesis = ch[6 + arguments.count] as! Raw
+        let offset = arguments.count + 7 + (retType == nil ? 0 : 1)
+        if retType != nil {
+          retType = (ch[7 + arguments.count] as! RetDecl)
+        }
+        trailingWhitespace = ch[offset] as! Raw
+        block = ch[offset + 1] as! Block
+      }
     }
 
     internal init(leadingWhitespace: Raw, rhs: [ASTMatch]) {
@@ -193,14 +273,25 @@ public struct AST: ASTNode {
 
   public struct Block: ASTNode {
     public struct BlockStatement: ASTNode {
+      public var position: Position? = nil
       public var statement: Statement
       public var trailingWhitespace: Raw?
 
       public var contents: ChildrenOrCode {
-        .children([statement] + maybeList(trailingWhitespace))
+        get {
+          .children([statement] + maybeList(trailingWhitespace))
+        }
+        set {
+          let ch = newValue.children!
+          statement = ch[0] as! Statement
+          if trailingWhitespace != nil {
+            trailingWhitespace = (ch[1] as! Raw)
+          }
+        }
       }
     }
 
+    public var position: Position? = nil
     public var openBrace: Raw
     public var whitespace: Raw
     public var statements: [BlockStatement]
@@ -238,11 +329,21 @@ public struct AST: ASTNode {
     }
 
     public var contents: ChildrenOrCode {
-      .children([openBrace, whitespace] + statements + [closeBrace])
+      get {
+        .children([openBrace, whitespace] + statements + [closeBrace])
+      }
+      set {
+        let ch = newValue.children!
+        openBrace = ch[0] as! Raw
+        whitespace = ch[1] as! Raw
+        statements = ch[2..<(2 + statements.count)].map { $0 as! BlockStatement }
+        closeBrace = ch[2 + statements.count] as! Raw
+      }
     }
   }
 
   public struct IfStatement: ASTNode {
+    public var position: Position? = nil
     public var ifText: Raw
     public var whitespace1: Raw
     public var openParenthesis: Raw
@@ -252,9 +353,21 @@ public struct AST: ASTNode {
     public var block: Block
 
     public var contents: ChildrenOrCode {
-      .children([
-        ifText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
-      ])
+      get {
+        .children([
+          ifText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
+        ])
+      }
+      set {
+        let ch = newValue.children!
+        ifText = ch[0] as! Raw
+        whitespace1 = ch[1] as! Raw
+        openParenthesis = ch[2] as! Raw
+        expression = ch[3] as! Expression
+        closeParenthesis = ch[4] as! Raw
+        whitespace2 = ch[5] as! Raw
+        block = ch[6] as! Block
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -272,6 +385,7 @@ public struct AST: ASTNode {
   }
 
   public struct WhileLoop: ASTNode {
+    public var position: Position? = nil
     public var whileText: Raw
     public var whitespace1: Raw
     public var openParenthesis: Raw
@@ -281,9 +395,21 @@ public struct AST: ASTNode {
     public var block: Block
 
     public var contents: ChildrenOrCode {
-      .children([
-        whileText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
-      ])
+      get {
+        .children([
+          whileText, whitespace1, openParenthesis, expression, closeParenthesis, whitespace2, block,
+        ])
+      }
+      set {
+        let ch = newValue.children!
+        whileText = ch[0] as! Raw
+        whitespace1 = ch[1] as! Raw
+        openParenthesis = ch[2] as! Raw
+        expression = ch[3] as! Expression
+        closeParenthesis = ch[4] as! Raw
+        whitespace2 = ch[5] as! Raw
+        block = ch[6] as! Block
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -301,13 +427,27 @@ public struct AST: ASTNode {
   }
 
   public struct ReturnStatement: ASTNode {
+    public var position: Position? = nil
     public var returnText: Raw
     public var openParenthesis: Raw
     public var expression: Expression?
     public var closeParenthesis: Raw
 
     public var contents: ChildrenOrCode {
-      .children([returnText, openParenthesis] + maybeList(expression) + [closeParenthesis])
+      get {
+        .children([returnText, openParenthesis] + maybeList(expression) + [closeParenthesis])
+      }
+      set {
+        let ch = newValue.children!
+        returnText = ch[0] as! Raw
+        openParenthesis = ch[1] as! Raw
+        if expression != nil {
+          expression = (ch[2] as! Expression)
+          closeParenthesis = ch[3] as! Raw
+        } else {
+          closeParenthesis = ch[2] as! Raw
+        }
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -329,10 +469,12 @@ public struct AST: ASTNode {
   }
 
   public struct BreakStatement: ASTNode {
+    public var position: Position? = nil
     public var breakText: Raw
 
     public var contents: ChildrenOrCode {
-      .children([breakText])
+      get { .children([breakText]) }
+      set { breakText = newValue.children![0] as! Raw }
     }
 
     internal init(match: ASTMatch) {
@@ -344,6 +486,7 @@ public struct AST: ASTNode {
   }
 
   public struct VarDecl: ASTNode {
+    public var position: Position? = nil
     public var identifier: Identifier
     public var whitespace1: Raw
     public var colon: Raw
@@ -355,10 +498,24 @@ public struct AST: ASTNode {
     public var expression: Expression
 
     public var contents: ChildrenOrCode {
-      .children([
-        identifier, whitespace1, colon, whitespace2, typeID, whitespace3, equals, whitespace4,
-        expression,
-      ])
+      get {
+        .children([
+          identifier, whitespace1, colon, whitespace2, typeID, whitespace3, equals, whitespace4,
+          expression,
+        ])
+      }
+      set {
+        let ch = newValue.children!
+        identifier = ch[0] as! Identifier
+        whitespace1 = ch[1] as! Raw
+        colon = ch[2] as! Raw
+        whitespace2 = ch[3] as! Raw
+        typeID = ch[4] as! TypeIdentifier
+        whitespace3 = ch[5] as! Raw
+        equals = ch[6] as! Raw
+        whitespace4 = ch[7] as! Raw
+        expression = ch[8] as! Expression
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -378,6 +535,7 @@ public struct AST: ASTNode {
   }
 
   public struct VarAssign: ASTNode {
+    public var position: Position? = nil
     public var identifier: Identifier
     public var whitespace1: Raw
     public var equals: Raw
@@ -385,7 +543,17 @@ public struct AST: ASTNode {
     public var expression: Expression
 
     public var contents: ChildrenOrCode {
-      .children([identifier, whitespace1, equals, whitespace2, expression])
+      get {
+        .children([identifier, whitespace1, equals, whitespace2, expression])
+      }
+      set {
+        let ch = newValue.children!
+        identifier = ch[0] as! Identifier
+        whitespace1 = ch[1] as! Raw
+        equals = ch[2] as! Raw
+        whitespace2 = ch[3] as! Raw
+        expression = ch[4] as! Expression
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -401,9 +569,13 @@ public struct AST: ASTNode {
   }
 
   public struct IntLiteral: ASTNode {
+    public var position: Position? = nil
     public var text: String
 
-    public var contents: ChildrenOrCode { .code(text) }
+    public var contents: ChildrenOrCode {
+      get { .code(text) }
+      set { text = newValue.code! }
+    }
 
     internal init(match: ASTMatch) {
       self.text = toText(match: match)
@@ -412,23 +584,45 @@ public struct AST: ASTNode {
 
   public struct FuncCall: ASTNode {
     public struct FuncArg: ASTNode {
+      public var position: Position? = nil
       public var whitespace1: Raw
       public var expression: Expression
       public var whitespace2: Raw
       public var comma: Raw?
 
       public var contents: ChildrenOrCode {
-        .children([whitespace1, expression, whitespace2] + maybeList(comma))
+        get {
+          .children([whitespace1, expression, whitespace2] + maybeList(comma))
+        }
+        set {
+          let ch = newValue.children!
+          whitespace1 = ch[0] as! Raw
+          expression = ch[1] as! Expression
+          whitespace2 = ch[2] as! Raw
+          if comma != nil {
+            comma = (ch[3] as! Raw)
+          }
+        }
       }
     }
 
+    public var position: Position? = nil
     public var identifier: Identifier
     public var openParenthesis: Raw
     public var args: [FuncArg]
     public var closeParenthesis: Raw
 
     public var contents: ChildrenOrCode {
-      .children([identifier, openParenthesis] + args + [closeParenthesis])
+      get {
+        .children([identifier, openParenthesis] + args + [closeParenthesis])
+      }
+      set {
+        let ch = newValue.children!
+        identifier = ch[0] as! Identifier
+        openParenthesis = ch[1] as! Raw
+        args = ch[2..<(args.count + 2)].map { $0 as! FuncArg }
+        closeParenthesis = ch[2 + args.count] as! Raw
+      }
     }
 
     internal init(match: ASTMatch) {
@@ -470,15 +664,44 @@ public struct AST: ASTNode {
   }
 
   public enum Expression: ASTNode {
-    indirect case funcCall(FuncCall)
-    case identifier(Identifier)
-    case intLiteral(IntLiteral)
+    indirect case funcCall(FuncCall, Position?)
+    case identifier(Identifier, Position?)
+    case intLiteral(IntLiteral, Position?)
 
     public var contents: ChildrenOrCode {
-      switch self {
-      case .funcCall(let c): .children([c])
-      case .identifier(let c): .children([c])
-      case .intLiteral(let c): .children([c])
+      get {
+        switch self {
+        case .funcCall(let c, _): .children([c])
+        case .identifier(let c, _): .children([c])
+        case .intLiteral(let c, _): .children([c])
+        }
+      }
+      set {
+        let c = newValue.children![0]
+        self =
+          switch self {
+          case .funcCall(_, let p): .funcCall(c as! FuncCall, p)
+          case .identifier(_, let p): .identifier(c as! Identifier, p)
+          case .intLiteral(_, let p): .intLiteral(c as! IntLiteral, p)
+          }
+      }
+    }
+
+    public var position: Position? {
+      get {
+        switch self {
+        case .funcCall(_, let p): p
+        case .identifier(_, let p): p
+        case .intLiteral(_, let p): p
+        }
+      }
+      set {
+        self =
+          switch self {
+          case .funcCall(let c, _): .funcCall(c, newValue)
+          case .identifier(let c, _): .identifier(c, newValue)
+          case .intLiteral(let c, _): .intLiteral(c, newValue)
+          }
       }
     }
 
@@ -488,32 +711,73 @@ public struct AST: ASTNode {
       }
       assert(rhs.count == 1)
       switch rhs[0] {
-      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]))
-      case .nonTerminal(.identifier, _): return .identifier(Identifier(match: rhs[0]))
-      case .nonTerminal(.intLiteral, _): return .intLiteral(IntLiteral(match: rhs[0]))
+      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]), nil)
+      case .nonTerminal(.identifier, _): return .identifier(Identifier(match: rhs[0]), nil)
+      case .nonTerminal(.intLiteral, _): return .intLiteral(IntLiteral(match: rhs[0]), nil)
       default: fatalError()
       }
     }
   }
 
   public enum Statement: ASTNode {
-    indirect case funcCall(FuncCall)
-    case varDecl(VarDecl)
-    case varAssign(VarAssign)
-    case ifStatement(IfStatement)
-    case whileLoop(WhileLoop)
-    case breakStatement(BreakStatement)
-    case returnStatement(ReturnStatement)
+    indirect case funcCall(FuncCall, Position?)
+    case varDecl(VarDecl, Position?)
+    case varAssign(VarAssign, Position?)
+    case ifStatement(IfStatement, Position?)
+    case whileLoop(WhileLoop, Position?)
+    case breakStatement(BreakStatement, Position?)
+    case returnStatement(ReturnStatement, Position?)
 
     public var contents: ChildrenOrCode {
-      switch self {
-      case .funcCall(let c): .children([c])
-      case .varDecl(let c): .children([c])
-      case .varAssign(let c): .children([c])
-      case .ifStatement(let c): .children([c])
-      case .whileLoop(let c): .children([c])
-      case .breakStatement(let c): .children([c])
-      case .returnStatement(let c): .children([c])
+      get {
+        switch self {
+        case .funcCall(let c, _): .children([c])
+        case .varDecl(let c, _): .children([c])
+        case .varAssign(let c, _): .children([c])
+        case .ifStatement(let c, _): .children([c])
+        case .whileLoop(let c, _): .children([c])
+        case .breakStatement(let c, _): .children([c])
+        case .returnStatement(let c, _): .children([c])
+        }
+      }
+      set {
+        let c = newValue.children![0]
+        self =
+          switch self {
+          case .funcCall(_, let p): .funcCall(c as! FuncCall, p)
+          case .varDecl(_, let p): .varDecl(c as! VarDecl, p)
+          case .varAssign(_, let p): .varAssign(c as! VarAssign, p)
+          case .ifStatement(_, let p): .ifStatement(c as! IfStatement, p)
+          case .whileLoop(_, let p): .whileLoop(c as! WhileLoop, p)
+          case .breakStatement(_, let p): .breakStatement(c as! BreakStatement, p)
+          case .returnStatement(_, let p): .returnStatement(c as! ReturnStatement, p)
+          }
+      }
+    }
+
+    public var position: Position? {
+      get {
+        switch self {
+        case .funcCall(_, let p): p
+        case .varDecl(_, let p): p
+        case .varAssign(_, let p): p
+        case .ifStatement(_, let p): p
+        case .whileLoop(_, let p): p
+        case .breakStatement(_, let p): p
+        case .returnStatement(_, let p): p
+        }
+      }
+      set {
+        self =
+          switch self {
+          case .funcCall(let c, _): .funcCall(c, newValue)
+          case .varDecl(let c, _): .varDecl(c, newValue)
+          case .varAssign(let c, _): .varAssign(c, newValue)
+          case .ifStatement(let c, _): .ifStatement(c, newValue)
+          case .whileLoop(let c, _): .whileLoop(c, newValue)
+          case .breakStatement(let c, _): .breakStatement(c, newValue)
+          case .returnStatement(let c, _): .returnStatement(c, newValue)
+          }
       }
     }
 
@@ -523,24 +787,33 @@ public struct AST: ASTNode {
       }
       assert(rhs.count == 1)
       switch rhs[0] {
-      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]))
-      case .nonTerminal(.varDecl, _): return .varDecl(VarDecl(match: rhs[0]))
-      case .nonTerminal(.varAssign, _): return .varAssign(VarAssign(match: rhs[0]))
-      case .nonTerminal(.ifStatement, _): return .ifStatement(IfStatement(match: rhs[0]))
-      case .nonTerminal(.whileLoop, _): return .whileLoop(WhileLoop(match: rhs[0]))
-      case .nonTerminal(.breakStatement, _): return .breakStatement(BreakStatement(match: rhs[0]))
+      case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]), nil)
+      case .nonTerminal(.varDecl, _): return .varDecl(VarDecl(match: rhs[0]), nil)
+      case .nonTerminal(.varAssign, _): return .varAssign(VarAssign(match: rhs[0]), nil)
+      case .nonTerminal(.ifStatement, _): return .ifStatement(IfStatement(match: rhs[0]), nil)
+      case .nonTerminal(.whileLoop, _): return .whileLoop(WhileLoop(match: rhs[0]), nil)
+      case .nonTerminal(.breakStatement, _):
+        return .breakStatement(BreakStatement(match: rhs[0]), nil)
       case .nonTerminal(.returnStatement, _):
-        return .returnStatement(ReturnStatement(match: rhs[0]))
+        return .returnStatement(ReturnStatement(match: rhs[0]), nil)
       default: fatalError()
       }
     }
   }
 
+  public var position: Position? = nil
   public var functions: [FuncDecl]
   public var trailingWhitespace: Raw
 
   public var contents: ChildrenOrCode {
-    .children(functions + [trailingWhitespace])
+    get {
+      .children(functions + [trailingWhitespace])
+    }
+    set {
+      let ch = newValue.children!
+      functions = ch[..<functions.count].map { $0 as! FuncDecl }
+      trailingWhitespace = ch[functions.count] as! Raw
+    }
   }
 
   public init(functions: [FuncDecl], trailingWhitespace: Raw) {
