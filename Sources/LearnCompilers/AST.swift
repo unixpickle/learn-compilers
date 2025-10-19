@@ -292,6 +292,8 @@ public struct AST: ASTNode {
     }
 
     public var position: Position? = nil
+    public var scope: Scope? = nil
+
     public var openBrace: Raw
     public var whitespace: Raw
     public var statements: [BlockStatement]
@@ -668,6 +670,18 @@ public struct AST: ASTNode {
     case identifier(Identifier, Position?)
     case intLiteral(IntLiteral, Position?)
 
+    public var funcCall: FuncCall? {
+      if case .funcCall(let c, _) = self { c } else { nil }
+    }
+
+    public var identifier: Identifier? {
+      if case .identifier(let c, _) = self { c } else { nil }
+    }
+
+    public var intLiteral: IntLiteral? {
+      if case .intLiteral(let c, _) = self { c } else { nil }
+    }
+
     public var contents: ChildrenOrCode {
       get {
         switch self {
@@ -727,6 +741,34 @@ public struct AST: ASTNode {
     case whileLoop(WhileLoop, Position?)
     case breakStatement(BreakStatement, Position?)
     case returnStatement(ReturnStatement, Position?)
+
+    public var funcCall: FuncCall? {
+      if case .funcCall(let c, _) = self { c } else { nil }
+    }
+
+    public var varDecl: VarDecl? {
+      if case .varDecl(let c, _) = self { c } else { nil }
+    }
+
+    public var varAssign: VarAssign? {
+      if case .varAssign(let c, _) = self { c } else { nil }
+    }
+
+    public var ifStatement: IfStatement? {
+      if case .ifStatement(let c, _) = self { c } else { nil }
+    }
+
+    public var whileLoop: WhileLoop? {
+      if case .whileLoop(let c, _) = self { c } else { nil }
+    }
+
+    public var breakStatement: BreakStatement? {
+      if case .breakStatement(let c, _) = self { c } else { nil }
+    }
+
+    public var returnStatement: ReturnStatement? {
+      if case .returnStatement(let c, _) = self { c } else { nil }
+    }
 
     public var contents: ChildrenOrCode {
       get {
