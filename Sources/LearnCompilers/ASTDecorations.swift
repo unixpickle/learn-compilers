@@ -50,11 +50,18 @@ public final class Variable: PointerHashable {
   public let declarationPosition: Position
   public let name: String
   public let type: DataType
+  public let isArgument: Bool
 
-  public init(declarationPosition p: Position, name n: String, type t: DataType) {
+  public init(
+    declarationPosition p: Position,
+    name n: String,
+    type t: DataType,
+    isArgument i: Bool = false
+  ) {
     declarationPosition = p
     name = n
     type = t
+    isArgument = i
   }
 }
 
@@ -135,6 +142,11 @@ extension ASTNode {
       block.scope = scope
       parent = scope
       result = block as! Self
+    } else if var fun = (self as? AST.FuncDecl) {
+      let scope = table.addScope(startPosition: position!, parent: parent)
+      fun.scope = scope
+      parent = scope
+      result = fun as! Self
     }
     if case .children(let children) = result.contents {
       let newChildren = children.map { $0.insertingScopes(table: &table, parent: parent) }
@@ -153,8 +165,34 @@ extension ASTNode {
 
     if let block = (self as? AST.Block) {
       scope = block.scope
+    } else if let fun = (self as? AST.FuncDecl) {
+      scope = fun.scope
     }
-    if var decl = (self as? AST.VarDecl) {
+    if var arg = (self as? AST.FuncDecl.ArgDecl) {
+      guard let scope = scope else {
+        fatalError("function argument should appear inside function scope")
+      }
+      let name = arg.identifier.name
+      if let existing = table.scopeVariables[scope]![name] {
+        errors.append(
+          VariableResolutionError.redefined(
+            original: existing.declarationPosition,
+            newPosition: arg.position!,
+            name: name
+          )
+        )
+      } else {
+        let v = Variable(
+          declarationPosition: arg.position!,
+          name: name,
+          type: arg.typeID.dataType,
+          isArgument: true
+        )
+        table.scopeVariables[scope]![name] = v
+        arg.identifier.variable = v
+      }
+      result = arg as! Self
+    } else if var decl = (self as? AST.VarDecl) {
       guard let scope = scope else {
         fatalError("statement appears outside block scope")
       }

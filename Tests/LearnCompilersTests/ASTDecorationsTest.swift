@@ -12,7 +12,8 @@ import Testing
   }
 
   let code = """
-      fn main() -> int {
+      fn main(x: int, w: int, z: int) -> int {
+        print(x)
         a: int = 7
         x: int = 3
         y: int = x
@@ -49,19 +50,31 @@ import Testing
   }
 
   // Now we'll find various symbols and make sure they are correct.
+  let argX = ast.functions[0].args[0].identifier.variable
+  let argW = ast.functions[0].args[1].identifier.variable
+  let argZ = ast.functions[0].args[2].identifier.variable
+  #expect(argX != argW)
+  #expect(argX != argZ)
+  #expect(argW != argZ)
+
   let funcBlock = ast.functions[0].block
   #expect(funcBlock.scope != nil)
-  let outerA = funcBlock.statements[0].statement.varDecl!.identifier.variable
-  let outerX = funcBlock.statements[1].statement.varDecl!.identifier.variable
-  let outerY = funcBlock.statements[2].statement.varDecl!.identifier.variable
-  let assignX1 = funcBlock.statements[3].statement.varAssign!.identifier.variable
+
+  let printArg = funcBlock.statements[0].statement.funcCall!.args[0].expression.identifier!.variable
+  #expect(printArg == argX)
+
+  let outerA = funcBlock.statements[1].statement.varDecl!.identifier.variable
+  let outerX = funcBlock.statements[2].statement.varDecl!.identifier.variable
+  let outerY = funcBlock.statements[3].statement.varDecl!.identifier.variable
+  let assignX1 = funcBlock.statements[4].statement.varAssign!.identifier.variable
+  #expect(outerX != argX)
   #expect(assignX1 == outerX)
   #expect(assignX1 != outerA)
   #expect(assignX1 != outerY)
-  let printY = funcBlock.statements[4].statement.funcCall!.args[0].expression.identifier!.variable
+  let printY = funcBlock.statements[5].statement.funcCall!.args[0].expression.identifier!.variable
   #expect(printY == outerY)
 
-  let whileLoop = funcBlock.statements[5].statement.whileLoop!
+  let whileLoop = funcBlock.statements[6].statement.whileLoop!
   let conditionVar = whileLoop.expression.funcCall!.args[0].expression.identifier!.variable
   #expect(conditionVar == outerX)
 

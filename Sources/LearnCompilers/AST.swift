@@ -165,13 +165,15 @@ public struct AST: ASTNode {
     }
 
     public var position: Position? = nil
+    public var scope: Scope? = nil
+
     public var leadingWhitespace: Raw
     public var fn: Raw
     public var whitespace1: Raw
     public var name: Identifier
     public var whitespace2: Raw
     public var openParenthesis: Raw
-    public var arguments: [ArgDecl]
+    public var args: [ArgDecl]
     public var closeParenthesis: Raw
     public var retType: RetDecl?
     public var trailingWhitespace: Raw
@@ -180,7 +182,7 @@ public struct AST: ASTNode {
     public var contents: ChildrenOrCode {
       get {
         .children(
-          [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + arguments + [
+          [leadingWhitespace, fn, whitespace1, name, whitespace2, openParenthesis] + args + [
             closeParenthesis
           ] + maybeList(retType) + [trailingWhitespace, block]
         )
@@ -193,11 +195,11 @@ public struct AST: ASTNode {
         name = ch[3] as! Identifier
         whitespace2 = ch[4] as! Raw
         openParenthesis = ch[5] as! Raw
-        arguments = ch[6..<(6 + arguments.count)].map { $0 as! ArgDecl }
-        closeParenthesis = ch[6 + arguments.count] as! Raw
-        let offset = arguments.count + 7 + (retType == nil ? 0 : 1)
+        args = ch[6..<(6 + args.count)].map { $0 as! ArgDecl }
+        closeParenthesis = ch[6 + args.count] as! Raw
+        let offset = args.count + 7 + (retType == nil ? 0 : 1)
         if retType != nil {
-          retType = (ch[7 + arguments.count] as! RetDecl)
+          retType = (ch[7 + args.count] as! RetDecl)
         }
         trailingWhitespace = ch[offset] as! Raw
         block = ch[offset + 1] as! Block
@@ -216,13 +218,13 @@ public struct AST: ASTNode {
         fatalError()
       }
 
-      arguments = []
+      args = []
       var argDecl = argDeclRHS
       while argDecl.count == 5 {
         guard case .nonTerminal(.funcArgDecl, let argRHS) = argDecl[1] else {
           fatalError()
         }
-        arguments.append(
+        args.append(
           ArgDecl(
             leadingWhitespace: Raw(match: argDecl[0]),
             trailingWhitespace: Raw(match: argDecl[2]),
@@ -239,7 +241,7 @@ public struct AST: ASTNode {
         guard case .nonTerminal(.funcArgDecl, let argRHS) = argDecl[1] else {
           fatalError()
         }
-        arguments.append(
+        args.append(
           ArgDecl(
             leadingWhitespace: Raw(match: argDecl[0]),
             trailingWhitespace: Raw(match: argDecl[2]),
