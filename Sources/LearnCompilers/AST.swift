@@ -42,7 +42,10 @@ extension ASTNode {
 public struct AST: ASTNode {
   public struct Identifier: ASTNode {
     public var position: Position? = nil
+
+    // One of these two should be set.
     public var variable: Variable? = nil
+    public var function: Function? = nil
 
     public var name: String
 
@@ -166,6 +169,7 @@ public struct AST: ASTNode {
 
     public var position: Position? = nil
     public var scope: Scope? = nil
+    public var function: Function? = nil
 
     public var leadingWhitespace: Raw
     public var fn: Raw

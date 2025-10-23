@@ -42,7 +42,7 @@ public final class Scope: PointerHashable {
 }
 
 public final class Variable: PointerHashable {
-  public enum DataType {
+  public enum DataType: Hashable, Sendable {
     case string
     case integer
   }
@@ -65,6 +65,23 @@ public final class Variable: PointerHashable {
   }
 }
 
+public final class Function: PointerHashable {
+  public struct Signature: Hashable, Sendable {
+    let args: [Variable.DataType]
+    let ret: Variable.DataType?
+  }
+
+  public let declarationPosition: Position
+  public let name: String
+  public let signature: Signature
+
+  public init(declarationPosition p: Position, name n: String, signature s: Signature) {
+    declarationPosition = p
+    name = n
+    signature = s
+  }
+}
+
 extension AST.TypeIdentifier {
   public var dataType: Variable.DataType {
     switch self.name {
@@ -78,10 +95,21 @@ extension AST.TypeIdentifier {
 public struct ScopeTable {
   public var scopeParent: [Scope: Scope]
   public var scopeVariables: [Scope: [String: Variable]]
+  public var functions: [String: [Function]]
 
   public init() {
     scopeParent = [:]
     scopeVariables = [:]
+    functions = [:]
+  }
+
+  public func resolveFunc(name: String, args: [Variable.DataType]) -> Function? {
+    for f in functions[name, default: []] {
+      if f.signature.args == args {
+        return f
+      }
+    }
+    return nil
   }
 
   public mutating func addScope(startPosition: Position, parent: Scope?) -> Scope {
@@ -110,6 +138,42 @@ public enum VariableResolutionError: Error {
   case redefined(original: Position, newPosition: Position, name: String)
 }
 
+public enum FuncResolutionError: Error {
+  case redefined(
+    original: Position,
+    newPosition: Position,
+    name: String,
+    oldSignature: Function.Signature,
+    newSignature: Function.Signature
+  )
+}
+
+public enum TypeAndControlFlowError: Error {
+  case breakOutsideOfLoop(Position)
+  case incorrectType(
+    position: Position, expectedType: Variable.DataType, actualType: Variable.DataType
+  )
+  case unknownFunction(position: Position, name: String, argTypes: [Variable.DataType])
+  case missingValue(position: Position)
+  case returnWithTypeFromVoidFunction(position: Position)
+  case returnWithVoidFromTypedFunction(position: Position, expectedType: Variable.DataType)
+}
+
+private enum InsertingScopesOp {
+  case expand(Scope?, ASTNode)
+  case finish(Scope?, ASTNode, Int)
+}
+
+private enum ResolvingVariablesOp {
+  case expand(Scope?, ASTNode)
+  case finish(Scope?, ASTNode, Int)
+}
+
+private enum ResolvingTypesOp {
+  case expand(ASTNode, Function?, Bool)
+  case finish(ASTNode, Function?, Bool, Int)
+}
+
 extension ASTNode {
   /// Insert self.position and the position of every child, given the starting
   /// position of this node.
@@ -135,125 +199,329 @@ extension ASTNode {
 
   /// Insert scopes on every code block to setup the scope hierarchy.
   public func insertingScopes(table: inout ScopeTable, parent: Scope? = nil) -> Self {
-    var parent = parent
+    var opStack: [InsertingScopesOp] = [.expand(parent, self)]
+    var outputStack = [ASTNode]()
+
+    while let op = opStack.popLast() {
+      switch op {
+      case .expand(var scope, let node):
+        if (node as? AST.Block) != nil || (node as? AST.FuncDecl) != nil {
+          scope = table.addScope(startPosition: position!, parent: scope)
+        }
+        if case .children(let children) = node.contents {
+          opStack.append(.finish(scope, node, children.count))
+          for child in children.reversed() {
+            opStack.append(.expand(scope, child))
+          }
+        } else {
+          outputStack.append(node)
+        }
+      case .finish(let scope, var node, let childCount):
+        node.contents = .children(Array(outputStack[(outputStack.count - childCount)...]))
+        outputStack.removeLast(childCount)
+        if var block = (node as? AST.Block) {
+          block.scope = scope
+          node = block
+        } else if var block = (node as? AST.FuncDecl) {
+          block.scope = scope
+          node = block
+        }
+        outputStack.append(node)
+      }
+    }
+
+    assert(outputStack.count == 1)
+    return outputStack[0] as! Self
+  }
+
+  /// Insert function pointers at every function declaration.
+  public func recordingFunctions(table: inout ScopeTable) -> (Self, [FuncResolutionError]) {
+    if (self as? AST.Block) != nil {
+      // No functions are defined within blocks.
+      return (self, [])
+    }
+
     var result = self
-    if var block = (self as? AST.Block) {
-      let scope = table.addScope(startPosition: position!, parent: parent)
-      block.scope = scope
-      parent = scope
-      result = block as! Self
-    } else if var fun = (self as? AST.FuncDecl) {
-      let scope = table.addScope(startPosition: position!, parent: parent)
-      fun.scope = scope
-      parent = scope
-      result = fun as! Self
+    var errors = [FuncResolutionError]()
+    if var fun = (self as? AST.FuncDecl) {
+      let fn = Function(
+        declarationPosition: fun.position!,
+        name: fun.name.name,
+        signature: .init(
+          args: fun.args.map { $0.typeID.dataType },
+          ret: fun.retType?.retType.dataType
+        )
+      )
+      if let existing = table.resolveFunc(name: fn.name, args: fn.signature.args) {
+        errors.append(
+          .redefined(
+            original: existing.declarationPosition,
+            newPosition: fn.declarationPosition,
+            name: fn.name,
+            oldSignature: existing.signature,
+            newSignature: fn.signature
+          )
+        )
+      } else {
+        table.functions[fn.name, default: []].append(fn)
+        fun.function = fn
+        result = fun as! Self
+      }
     }
     if case .children(let children) = result.contents {
-      let newChildren = children.map { $0.insertingScopes(table: &table, parent: parent) }
+      var newChildren = [ASTNode]()
+      for child in children {
+        let (newChild, subErrs) = child.recordingFunctions(table: &table)
+        errors.append(contentsOf: subErrs)
+        newChildren.append(newChild)
+      }
       result.contents = .children(newChildren)
     }
-    return result
+    return (result, errors)
   }
 
   /// Resolve variable references and definitions in the table, possibly returning errors.
   public func resolvingVariables(table: inout ScopeTable, scope: Scope? = nil) -> (
     Self, [VariableResolutionError]
   ) {
-    var scope = scope
-    var result = self
+    var opStack: [ResolvingVariablesOp] = [.expand(scope, self)]
+    var outputStack = [ASTNode]()
     var errors = [VariableResolutionError]()
 
-    if let block = (self as? AST.Block) {
-      scope = block.scope
-    } else if let fun = (self as? AST.FuncDecl) {
-      scope = fun.scope
-    }
-    if var arg = (self as? AST.FuncDecl.ArgDecl) {
-      guard let scope = scope else {
-        fatalError("function argument should appear inside function scope")
-      }
-      let name = arg.identifier.name
-      if let existing = table.scopeVariables[scope]![name] {
-        errors.append(
-          VariableResolutionError.redefined(
-            original: existing.declarationPosition,
-            newPosition: arg.position!,
-            name: name
-          )
-        )
-      } else {
-        let v = Variable(
-          declarationPosition: arg.position!,
-          name: name,
-          type: arg.typeID.dataType,
-          isArgument: true
-        )
-        table.scopeVariables[scope]![name] = v
-        arg.identifier.variable = v
-      }
-      result = arg as! Self
-    } else if var decl = (self as? AST.VarDecl) {
-      guard let scope = scope else {
-        fatalError("statement appears outside block scope")
-      }
-      if let existing = table.scopeVariables[scope]![decl.identifier.name] {
-        errors.append(
-          VariableResolutionError.redefined(
-            original: existing.declarationPosition,
-            newPosition: decl.position!,
-            name: decl.identifier.name
-          )
-        )
-      } else {
-        // Make sure to resolve symbols on the RHS before defining this one, to avoid
-        // allowing circular cases like "a: int = a" when "a" isn't already defined.
-        let (newExpr, newErrors) = decl.expression.resolvingVariables(table: &table, scope: scope)
-        errors.append(contentsOf: newErrors)
-        decl.expression = newExpr
-        let v = Variable(
-          declarationPosition: decl.position!,
-          name: decl.identifier.name,
-          type: decl.typeID.dataType
-        )
-        table.scopeVariables[scope]![decl.identifier.name] = v
-        decl.identifier.variable = v
-        result = decl as! Self
-      }
-    } else if var assign = (self as? AST.VarAssign) {
-      guard let scope = scope else {
-        fatalError("statement appears outside block scope")
-      }
-      if let v = table.resolve(scope: scope, name: assign.identifier.name) {
-        assign.identifier.variable = v
-        let (newExpr, newErrors) = assign.expression.resolvingVariables(table: &table, scope: scope)
-        errors.append(contentsOf: newErrors)
-        assign.expression = newExpr
-        result = assign as! Self
-      } else {
-        errors.append(VariableResolutionError.notDefined(assign.position!, assign.identifier.name))
-      }
-    } else if let expr = (self as? AST.Expression), case .identifier(var id, let pos) = expr {
-      guard let scope = scope else {
-        fatalError("statement appears outside block scope")
-      }
-      if let v = table.resolve(scope: scope, name: id.name) {
-        id.variable = v
-        result = AST.Expression.identifier(id, pos) as! Self
-      } else {
-        errors.append(VariableResolutionError.notDefined(pos!, id.name))
-      }
-    } else {
-      if case .children(let children) = result.contents {
-        var newChildren = [ASTNode]()
-        for child in children {
-          let (newChild, e) = child.resolvingVariables(table: &table, scope: scope)
-          newChildren.append(newChild)
-          errors.append(contentsOf: e)
+    while let op = opStack.popLast() {
+      switch op {
+      case .expand(var scope, let node):
+        if let block = (node as? AST.Block) {
+          scope = block.scope
+        } else if let fun = (node as? AST.FuncDecl) {
+          scope = fun.scope
         }
-        result.contents = .children(newChildren)
+
+        if case .children(let children) = node.contents {
+          opStack.append(.finish(scope, node, children.count))
+          for child in children.reversed() {
+            opStack.append(.expand(scope, child))
+          }
+        } else {
+          outputStack.append(node)
+        }
+      case .finish(let scope, var node, let childCount):
+        node.contents = .children(Array(outputStack[(outputStack.count - childCount)...]))
+        outputStack.removeLast(childCount)
+
+        if var arg = (node as? AST.FuncDecl.ArgDecl) {
+          guard let scope = scope else {
+            fatalError("function argument should appear inside function scope")
+          }
+          let name = arg.identifier.name
+          if let existing = table.scopeVariables[scope]![name] {
+            errors.append(
+              VariableResolutionError.redefined(
+                original: existing.declarationPosition,
+                newPosition: arg.position!,
+                name: name
+              )
+            )
+          } else {
+            let v = Variable(
+              declarationPosition: arg.position!,
+              name: name,
+              type: arg.typeID.dataType,
+              isArgument: true
+            )
+            table.scopeVariables[scope]![name] = v
+            arg.identifier.variable = v
+            node = arg
+          }
+        } else if var decl = (node as? AST.VarDecl) {
+          guard let scope = scope else {
+            fatalError("statement appears outside block scope")
+          }
+          if let existing = table.scopeVariables[scope]![decl.identifier.name] {
+            errors.append(
+              VariableResolutionError.redefined(
+                original: existing.declarationPosition,
+                newPosition: decl.position!,
+                name: decl.identifier.name
+              )
+            )
+          } else {
+            let v = Variable(
+              declarationPosition: decl.position!,
+              name: decl.identifier.name,
+              type: decl.typeID.dataType
+            )
+            table.scopeVariables[scope]![decl.identifier.name] = v
+            decl.identifier.variable = v
+            node = decl
+          }
+        } else if var assign = (node as? AST.VarAssign) {
+          guard let scope = scope else {
+            fatalError("statement appears outside block scope")
+          }
+          if let v = table.resolve(scope: scope, name: assign.identifier.name) {
+            assign.identifier.variable = v
+            node = assign
+          } else {
+            errors.append(
+              VariableResolutionError.notDefined(assign.position!, assign.identifier.name)
+            )
+          }
+        } else if let expr = (node as? AST.Expression), case .identifier(var id, let pos) = expr {
+          guard let scope = scope else {
+            fatalError("statement appears outside block scope")
+          }
+          if let v = table.resolve(scope: scope, name: id.name) {
+            id.variable = v
+            node = AST.Expression.identifier(id, pos)
+          } else {
+            errors.append(VariableResolutionError.notDefined(pos!, id.name))
+          }
+        }
+        outputStack.append(node)
       }
     }
 
-    return (result, errors)
+    assert(outputStack.count == 1)
+
+    return (outputStack[0] as! Self, errors)
+  }
+
+  /// Map function calls to specific functions based on types, verify break
+  /// and return statements, and check variable assignment types.
+  public func resolvingTypesAndControlFlow(
+    table: inout ScopeTable,
+    inFunction: Function? = nil,
+    inLoop: Bool = false
+  ) -> (Self, [TypeAndControlFlowError]) {
+    var opStack: [ResolvingTypesOp] = [.expand(self, inFunction, inLoop)]
+    var outputStack = [ASTNode]()
+    var errors = [TypeAndControlFlowError]()
+
+    func typeFor(expr: AST.Expression) -> Variable.DataType? {
+      switch expr {
+      case .intLiteral: .integer
+      case .identifier(let id, _): id.variable!.type
+      case .funcCall(let call, _): call.identifier.function!.signature.ret
+      }
+    }
+
+    while let op = opStack.popLast() {
+      switch op {
+      case .expand(let node, var inFunction, var inLoop):
+        if let fun = (self as? AST.FuncDecl) {
+          inFunction = fun.function!
+        } else if (self as? AST.WhileLoop) != nil {
+          inLoop = true
+        }
+        if case .children(let children) = node.contents {
+          opStack.append(.finish(node, inFunction, inLoop, children.count))
+          for child in children.reversed() {
+            opStack.append(.expand(child, inFunction, inLoop))
+          }
+        } else {
+          outputStack.append(node)
+        }
+      case .finish(var node, let inFunction, let inLoop, let childCount):
+        node.contents = .children(Array(outputStack[(outputStack.count - childCount)...]))
+        outputStack.removeLast(childCount)
+
+        if var call = (node as? AST.FuncCall) {
+          // Resolve function call based on name and argument types.
+          var argTypes = [Variable.DataType]()
+          var badTypes = false
+          for arg in call.args {
+            if let maybeType = typeFor(expr: arg.expression) {
+              argTypes.append(maybeType)
+            } else {
+              // An error should already have been flagged when handling
+              // our children.
+              badTypes = true
+              break
+            }
+          }
+          if !badTypes {
+            if let fn = table.resolveFunc(name: call.identifier.name, args: argTypes) {
+              call.identifier.function = fn
+              node = call
+            } else {
+              errors.append(
+                .unknownFunction(
+                  position: call.identifier.position!,
+                  name: call.identifier.name,
+                  argTypes: argTypes
+                )
+              )
+            }
+          }
+        } else if let expr = (node as? AST.Expression) {
+          // Raise an error if any expression doesn't have a resolvable type.
+          if typeFor(expr: expr) == nil {
+            errors.append(.missingValue(position: expr.position!))
+          }
+        } else if let assign = (node as? AST.VarAssign), let t = typeFor(expr: assign.expression) {
+          if t != assign.identifier.variable!.type {
+            errors.append(
+              .incorrectType(
+                position: assign.expression.position!,
+                expectedType: assign.identifier.variable!.type,
+                actualType: t
+              )
+            )
+          }
+        } else if let decl = (node as? AST.VarDecl), let t = typeFor(expr: decl.expression) {
+          if t != decl.identifier.variable!.type {
+            errors.append(
+              .incorrectType(
+                position: decl.expression.position!,
+                expectedType: decl.identifier.variable!.type,
+                actualType: t
+              )
+            )
+          }
+        } else if let br = (node as? AST.BreakStatement) {
+          if !inLoop {
+            errors.append(.breakOutsideOfLoop(br.position!))
+          }
+        } else if let ret = (node as? AST.ReturnStatement) {
+          // Verify the return type from the function
+          guard let fn = inFunction else {
+            fatalError("statement outside of function")
+          }
+          if let arg = ret.expression {
+            if let retType = fn.signature.ret {
+              if let t = typeFor(expr: arg) {
+                if t != retType {
+                  errors.append(
+                    .incorrectType(
+                      position: arg.position!,
+                      expectedType: retType,
+                      actualType: t
+                    )
+                  )
+                }
+              }
+            } else {
+              errors.append(.returnWithTypeFromVoidFunction(position: arg.position!))
+            }
+          } else {
+            if let retType = fn.signature.ret {
+              errors.append(
+                .returnWithVoidFromTypedFunction(
+                  position: ret.position!,
+                  expectedType: retType
+                )
+              )
+            }
+          }
+        }
+
+        outputStack.append(node)
+      }
+    }
+
+    assert(outputStack.count == 1)
+
+    return (outputStack[0] as! Self, errors)
   }
 }

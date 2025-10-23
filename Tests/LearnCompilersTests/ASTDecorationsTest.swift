@@ -4,10 +4,8 @@ import Testing
 @testable import LearnCompilers
 
 @Test func testASTVariableResolution() async throws {
-  let parser = try LR1Parser(grammar: SimpleGrammar())
-
   func parseCode(_ code: String) async throws -> ASTMatch {
-    var p = parser
+    var p = Parser.standard
     return try await p.read(StringParserReader(code))
   }
 

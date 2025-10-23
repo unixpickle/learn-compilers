@@ -1,4 +1,28 @@
+import Foundation
 import LearnParsers
+
+public final class Parser {
+  public typealias ParserType = LR1Parser<String, SimpleGrammarKeyword, SimpleGrammar>
+
+  private static let lock = NSLock()
+  nonisolated(unsafe) private static var p: ParserType? = nil
+
+  public static var standard: ParserType {
+    lock.withLock {
+      if let p = p {
+        return p
+      }
+      do {
+        p = try LR1Parser(grammar: SimpleGrammar())
+      } catch {
+        fatalError("ERROR initializing shared parser: \(error)")
+      }
+      return p!
+    }
+  }
+
+  private init() {}
+}
 
 public enum SimpleGrammarKeyword: SymbolProto {
   case codeFile
