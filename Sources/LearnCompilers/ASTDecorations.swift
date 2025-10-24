@@ -133,12 +133,23 @@ public struct ScopeTable {
   }
 }
 
-public enum VariableResolutionError: Error {
-  case notDefined(Position, String)
-  case redefined(original: Position, newPosition: Position, name: String)
+public protocol ASTDecorationError: Error {
+  var position: Position { get }
 }
 
-public enum FuncResolutionError: Error {
+public enum VariableResolutionError: ASTDecorationError {
+  case notDefined(Position, String)
+  case redefined(original: Position, newPosition: Position, name: String)
+
+  public var position: Position {
+    switch self {
+    case .notDefined(let p, _): p
+    case .redefined(_, let p, _): p
+    }
+  }
+}
+
+public enum FuncResolutionError: ASTDecorationError {
   case redefined(
     original: Position,
     newPosition: Position,
@@ -146,9 +157,15 @@ public enum FuncResolutionError: Error {
     oldSignature: Function.Signature,
     newSignature: Function.Signature
   )
+
+  public var position: Position {
+    switch self {
+    case .redefined(_, let p, _, _, _): p
+    }
+  }
 }
 
-public enum TypeAndControlFlowError: Error {
+public enum TypeAndControlFlowError: ASTDecorationError {
   case breakOutsideOfLoop(Position)
   case incorrectType(
     position: Position, expectedType: Variable.DataType, actualType: Variable.DataType
@@ -157,6 +174,17 @@ public enum TypeAndControlFlowError: Error {
   case missingValue(position: Position)
   case returnWithTypeFromVoidFunction(position: Position)
   case returnWithVoidFromTypedFunction(position: Position, expectedType: Variable.DataType)
+
+  public var position: Position {
+    switch self {
+    case .breakOutsideOfLoop(let p): p
+    case .incorrectType(let p, _, _): p
+    case .unknownFunction(let p, _, _): p
+    case .missingValue(let p): p
+    case .returnWithTypeFromVoidFunction(let p): p
+    case .returnWithVoidFromTypedFunction(let p, _): p
+    }
+  }
 }
 
 private enum InsertingScopesOp {
@@ -409,9 +437,9 @@ extension ASTNode {
     while let op = opStack.popLast() {
       switch op {
       case .expand(let node, var inFunction, var inLoop):
-        if let fun = (self as? AST.FuncDecl) {
+        if let fun = (node as? AST.FuncDecl) {
           inFunction = fun.function!
-        } else if (self as? AST.WhileLoop) != nil {
+        } else if (node as? AST.WhileLoop) != nil {
           inLoop = true
         }
         if case .children(let children) = node.contents {
@@ -523,5 +551,28 @@ extension ASTNode {
     assert(outputStack.count == 1)
 
     return (outputStack[0] as! Self, errors)
+  }
+
+  /// Run the full decoration pipeline on the AST, returning any errors that arise.
+  public func decorated(table: inout ScopeTable, fileID: String) -> (Self, [ASTDecorationError]) {
+    var result = self
+    (result, _) = result.insertingPositions(start: Position(fileID: fileID))
+    result = result.insertingScopes(table: &table)
+    var fnErrs: [FuncResolutionError]
+    (result, fnErrs) = result.recordingFunctions(table: &table)
+    if !fnErrs.isEmpty {
+      return (result, fnErrs.map { $0 as ASTDecorationError })
+    }
+    var varErrs: [VariableResolutionError]
+    (result, varErrs) = result.resolvingVariables(table: &table)
+    if !varErrs.isEmpty {
+      return (result, varErrs.map { $0 as ASTDecorationError })
+    }
+    var otherErrs: [TypeAndControlFlowError]
+    (result, otherErrs) = result.resolvingTypesAndControlFlow(table: &table)
+    if !otherErrs.isEmpty {
+      return (result, otherErrs.map { $0 as ASTDecorationError })
+    }
+    return (result, [])
   }
 }
