@@ -1,6 +1,6 @@
 public struct CFG {
 
-  public struct SSAVariable {
+  public struct SSAVariable: Hashable {
     public let variable: Variable
     public var version: Int?
   }
@@ -8,17 +8,68 @@ public struct CFG {
   public enum Argument {
     case constInt(Int64)
     case variable(SSAVariable)
+
+    internal var variables: [SSAVariable] {
+      switch self {
+      case .constInt(_): []
+      case .variable(let v): [v]
+      }
+    }
+
+    public func replacing(_ v: SSAVariable, with r: SSAVariable) -> Self {
+      switch self {
+      case .constInt(_): self
+      case .variable(let v1): .variable(v1 == v ? r : v1)
+      }
+    }
   }
 
   public struct Inst {
     public enum Op {
-      case ret
-      case retValue(Argument)
-      case brk
+      case funcArg(SSAVariable, Int)
+
+      /// Only to be used at the bottom of a node and passed a constant
+      /// or integer variable.
       case check(Argument)
-      case call(Function, [Argument])
+
       case copy(SSAVariable, Argument)
+      case call(Function, [Argument])
       case callAndStore(SSAVariable, Function, [Argument])
+
+      case consumeReturnVar(SSAVariable)
+
+      public var defs: [SSAVariable] {
+        switch self {
+        case .funcArg(let v, _): [v]
+        case .copy(let v, _): [v]
+        case .callAndStore(let v, _, _): [v]
+        default: []
+        }
+      }
+
+      public var uses: [SSAVariable] {
+        switch self {
+        case .funcArg(_, _): []
+        case .check(let a): a.variables
+        case .copy(_, let a): a.variables
+        case .call(_, let args): args.flatMap { $0.variables }
+        case .callAndStore(_, _, let args): args.flatMap { $0.variables }
+        case .consumeReturnVar(let v): [v]
+        }
+      }
+
+      public func replacing(_ v: SSAVariable, with r: SSAVariable) -> Self {
+        switch self {
+        case .funcArg(let target, let idx): .funcArg(target == v ? r : target, idx)
+        case .check(let a): .check(a.replacing(v, with: r))
+        case .copy(let target, let source):
+          .copy(target == v ? r : target, source.replacing(v, with: r))
+        case .call(let fn, let args): .call(fn, args.map { $0.replacing(v, with: r) })
+        case .callAndStore(let target, let fn, let args):
+          .callAndStore(target == v ? r : target, fn, args.map { $0.replacing(v, with: r) })
+        case .consumeReturnVar(let retVar): .consumeReturnVar(retVar == v ? r : retVar)
+        }
+      }
     }
 
     public let position: Position
@@ -32,10 +83,24 @@ public struct CFG {
   public class Node: PointerHashable {
   }
 
+  public enum Successors {
+    case single(Node)
+    case branch(ifFalse: Node, ifTrue: Node)
+
+    var nodes: [Node] {
+      switch self {
+      case .single(let n): [n]
+      case .branch(let a, let b): [a, b]
+      }
+    }
+  }
+
   public var nodes = Set<Node>()
   public var nodeCode = [Node: NodeCode]()
-  public var successors = [Node: [Node]]()
+  public var successors = [Node: Successors]()
+  public var predecessors = [Node: Set<Node>]()
   public var functions = [Function: Node]()
+  public var returnVars = [Function: Variable]()
   private var tmpCounter: Int = 0
 
   public init() {
@@ -44,6 +109,30 @@ public struct CFG {
   private mutating func add(fn: AST.FuncDecl) {
     let head = addNode()
     let end = addNode()
+    for (i, arg) in fn.args.enumerated() {
+      nodeCode[head]!.instructions.append(
+        Inst(
+          position: arg.position!,
+          op: .funcArg(SSAVariable(variable: arg.identifier.variable!), i)
+        )
+      )
+    }
+
+    if let retType = fn.retType {
+      let returnVar = Variable(
+        declarationPosition: retType.position!,
+        name: "<return value>",
+        type: retType.retType.dataType
+      )
+      returnVars[fn.function!] = returnVar
+      nodeCode[end]!.instructions.append(
+        Inst(
+          position: retType.position!,
+          op: .consumeReturnVar(SSAVariable(variable: returnVar))
+        )
+      )
+    }
+
     addBlock(block: fn.block, node: head, next: end)
     functions[fn.function!] = head
   }
@@ -53,40 +142,56 @@ public struct CFG {
   }
 
   private mutating func addBlock(block: AST.Block, node: Node, next: Node) {
-    var queue: [AddBlockOp] = [.build(node: node, statements: block.statements.map { $0.statement }, next: next)]
+    var queue: [AddBlockOp] = [
+      .build(node: node, statements: block.statements.map { $0.statement }, next: next)
+    ]
 
     while case .build(let node, let statements, let next) = queue.popLast() {
       var hitControlFlow = false
       for (i, statement) in statements.enumerated() {
         switch statement {
-        case .ifStatement(let ifStatement, let pos):
+        case .ifStatement(let ifStatement, _):
           let checkArg = lowerExpression(node: node, expr: ifStatement.expression)
           nodeCode[node]!.instructions.append(
             Inst(position: ifStatement.expression.position!, op: .check(checkArg))
           )
-          let falseNode = addNode()
+          let nextStatements = Array(statements[(i + 1)...])
+          let falseNode = nextStatements.isEmpty ? next : addNode()
           let trueNode = addNode()
-          addEdge(from: node, to: falseNode)
-          addEdge(from: node, to: trueNode)
-          let nextStatements = Array(statements[(i+1)...])
-          queue.append(.build(node: falseNode, statements: nextStatements, next: next))
-          queue.append(.build(node: trueNode, statements: ifStatement.block.statements.map { $0.statement }, next: falseNode))
+          addEdge(from: node, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
+          if !nextStatements.isEmpty {
+            queue.append(.build(node: falseNode, statements: nextStatements, next: next))
+          }
+          queue.append(
+            .build(
+              node: trueNode,
+              statements: ifStatement.block.statements.map { $0.statement },
+              next: falseNode
+            )
+          )
           hitControlFlow = true
-        case .whileLoop(let whileLoop, let pos):
+        case .whileLoop(let whileLoop, _):
           let checkNode = addNode()
-          addEdge(from: node, to: checkNode)
+          addEdge(from: node, to: .single(checkNode))
 
           let checkArg = lowerExpression(node: checkNode, expr: whileLoop.expression)
           nodeCode[checkNode]!.instructions.append(
             Inst(position: whileLoop.expression.position!, op: .check(checkArg))
           )
-          let falseNode = addNode()
+          let nextStatements = Array(statements[(i + 1)...])
+          let falseNode = nextStatements.isEmpty ? next : addNode()
           let trueNode = addNode()
-          addEdge(from: checkNode, to: falseNode)
-          addEdge(from: checkNode, to: trueNode)
-          let nextStatements = Array(statements[(i+1)...])
-          queue.append(.build(node: falseNode, statements: nextStatements, next: next))
-          queue.append(.build(node: trueNode, statements: whileLoop.block.statements.map { $0.statement }, next: checkNode))
+          addEdge(from: checkNode, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
+          if !nextStatements.isEmpty {
+            queue.append(.build(node: falseNode, statements: nextStatements, next: next))
+          }
+          queue.append(
+            .build(
+              node: trueNode,
+              statements: whileLoop.block.statements.map { $0.statement },
+              next: checkNode
+            )
+          )
           hitControlFlow = true
         default: fatalError("TODO: handle simple statements")
         }
@@ -95,19 +200,60 @@ public struct CFG {
         }
       }
       if !hitControlFlow {
-        addEdge(from: node, to: next)
+        addEdge(from: node, to: .single(next))
       }
     }
   }
 
+  private enum LowerExpressionOp {
+    case expand(AST.Expression)
+    case doFuncCall(AST.FuncCall)
+  }
+
   private mutating func lowerExpression(node: Node, expr: AST.Expression) -> Argument {
-    switch expr {
-    case .identifier(let v, _): .variable(SSAVariable(variable: v.variable!))
-    case .intLiteral(let v, _): .constInt(v.integer)
-    case .funcCall(let fCall, _):
-      // TODO: lower the function call to a temp variable recursively.
-      fatalError()
+    var opStack: [LowerExpressionOp] = [.expand(expr)]
+    var resultStack = [Argument]()
+
+    while let op = opStack.popLast() {
+      switch op {
+      case .expand(let expr):
+        switch expr {
+        case .identifier(let v, _):
+          resultStack.append(.variable(SSAVariable(variable: v.variable!)))
+        case .intLiteral(let v, _):
+          resultStack.append(.constInt(v.integer))
+        case .funcCall(let fCall, _):
+          opStack.append(.doFuncCall(fCall))
+          for arg in fCall.args.reversed() {
+            opStack.append(.expand(arg.expression))
+          }
+        }
+      case .doFuncCall(let fCall):
+        let args = Array(resultStack[(resultStack.count - fCall.args.count)...])
+        resultStack.removeLast(fCall.args.count)
+        let tmp = createTmp(
+          position: fCall.position!,
+          type: fCall.identifier.function!.signature.ret!
+        )
+        let ssaVar = SSAVariable(variable: tmp)
+        nodeCode[node]!.instructions.append(
+          Inst(
+            position: fCall.position!,
+            op: .callAndStore(ssaVar, fCall.identifier.function!, args)
+          )
+        )
+        resultStack.append(.variable(ssaVar))
+      }
     }
+
+    assert(resultStack.count == 1)
+    return resultStack[0]
+  }
+
+  private mutating func createTmp(position: Position, type: Variable.DataType) -> Variable {
+    let id = tmpCounter
+    tmpCounter += 1
+    return Variable(declarationPosition: position, name: "tmp[\(id)]", type: type)
   }
 
   private mutating func addNode() -> Node {
@@ -117,8 +263,14 @@ public struct CFG {
     return node
   }
 
-  private mutating func addEdge(from: Node, to: Node) {
-    successors[from, default: []].append(to)
+  private mutating func addEdge(from: Node, to: Successors) {
+    if successors[from] != nil {
+      fatalError("adding edge from node when edge already exists")
+    }
+    successors[from] = to
+    for n in to.nodes {
+      predecessors[n, default: []].insert(from)
+    }
   }
 
 }
