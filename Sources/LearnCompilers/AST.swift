@@ -580,6 +580,10 @@ public struct AST: ASTNode {
     public var position: Position? = nil
     public var text: String
 
+    public var integer: Int64 {
+      Int64(text)!
+    }
+
     public var contents: ChildrenOrCode {
       get { .code(text) }
       set { text = newValue.code! }
