@@ -106,7 +106,19 @@ public struct CFG {
   public init() {
   }
 
-  private mutating func add(fn: AST.FuncDecl) {
+  public init(ast: AST) {
+    add(ast: ast)
+  }
+
+  // Add an entire AST to the graph.
+  public mutating func add(ast: AST) {
+    for fn in ast.functions {
+      add(fn: fn)
+    }
+  }
+
+  // Add a function to the graph, given its declaration.
+  public mutating func add(fn: AST.FuncDecl) {
     let head = addNode()
     let end = addNode()
     for (i, arg) in fn.args.enumerated() {
@@ -118,35 +130,46 @@ public struct CFG {
       )
     }
 
+    var returnVar: Variable?
     if let retType = fn.retType {
-      let returnVar = Variable(
+      returnVar = Variable(
         declarationPosition: retType.position!,
         name: "<return value>",
         type: retType.retType.dataType
       )
-      returnVars[fn.function!] = returnVar
+      returnVars[fn.function!] = returnVar!
       nodeCode[end]!.instructions.append(
         Inst(
           position: retType.position!,
-          op: .consumeReturnVar(SSAVariable(variable: returnVar))
+          op: .consumeReturnVar(SSAVariable(variable: returnVar!))
         )
       )
     }
 
-    addBlock(block: fn.block, node: head, next: end)
+    addBlock(block: fn.block, node: head, next: end, returnBlock: end, returnVar: returnVar)
     functions[fn.function!] = head
   }
 
   private enum AddBlockOp {
-    case build(node: Node, statements: [AST.Statement], next: Node)
+    case build(
+      node: Node, statements: [AST.Statement], next: Node, loopExit: Node?
+    )
   }
 
-  private mutating func addBlock(block: AST.Block, node: Node, next: Node) {
+  private mutating func addBlock(
+    block: AST.Block,
+    node: Node,
+    next: Node,
+    returnBlock: Node,
+    returnVar: Variable?
+  ) {
     var queue: [AddBlockOp] = [
-      .build(node: node, statements: block.statements.map { $0.statement }, next: next)
+      .build(
+        node: node, statements: block.statements.map { $0.statement }, next: next, loopExit: nil
+      )
     ]
 
-    while case .build(let node, let statements, let next) = queue.popLast() {
+    while case .build(let node, let statements, let next, let loopExit) = queue.popLast() {
       var hitControlFlow = false
       for (i, statement) in statements.enumerated() {
         switch statement {
@@ -160,13 +183,16 @@ public struct CFG {
           let trueNode = addNode()
           addEdge(from: node, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
           if !nextStatements.isEmpty {
-            queue.append(.build(node: falseNode, statements: nextStatements, next: next))
+            queue.append(
+              .build(node: falseNode, statements: nextStatements, next: next, loopExit: loopExit)
+            )
           }
           queue.append(
             .build(
               node: trueNode,
               statements: ifStatement.block.statements.map { $0.statement },
-              next: falseNode
+              next: falseNode,
+              loopExit: loopExit
             )
           )
           hitControlFlow = true
@@ -183,17 +209,62 @@ public struct CFG {
           let trueNode = addNode()
           addEdge(from: checkNode, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
           if !nextStatements.isEmpty {
-            queue.append(.build(node: falseNode, statements: nextStatements, next: next))
+            queue.append(
+              .build(node: falseNode, statements: nextStatements, next: next, loopExit: loopExit)
+            )
           }
           queue.append(
             .build(
               node: trueNode,
               statements: whileLoop.block.statements.map { $0.statement },
-              next: checkNode
+              next: checkNode,
+              loopExit: falseNode
             )
           )
           hitControlFlow = true
-        default: fatalError("TODO: handle simple statements")
+        case .returnStatement(let statement, let position):
+          if let retVal = statement.expression {
+            assert(returnVar != nil, "return with value in block without return variable")
+            let retArg = lowerExpression(node: node, expr: retVal)
+            nodeCode[node]!.instructions.append(
+              Inst(
+                position: position!,
+                op: .copy(SSAVariable(variable: returnVar!), retArg)
+              )
+            )
+          } else {
+            assert(returnVar == nil, "return without value in block with return variable")
+          }
+          addEdge(from: node, to: .single(returnBlock))
+          hitControlFlow = true
+        case .breakStatement(_, _):
+          assert(loopExit != nil, "hit break outside of loop")
+          addEdge(from: node, to: .single(loopExit!))
+          hitControlFlow = true
+        case .varDecl(let statement, let position):
+          let exprArg = lowerExpression(node: node, expr: statement.expression)
+          nodeCode[node]!.instructions.append(
+            Inst(
+              position: position!,
+              op: .copy(SSAVariable(variable: statement.identifier.variable!), exprArg)
+            )
+          )
+        case .varAssign(let statement, let position):
+          let exprArg = lowerExpression(node: node, expr: statement.expression)
+          nodeCode[node]!.instructions.append(
+            Inst(
+              position: position!,
+              op: .copy(SSAVariable(variable: statement.identifier.variable!), exprArg)
+            )
+          )
+        case .funcCall(let fCall, let position):
+          let args = fCall.args.map { lowerExpression(node: node, expr: $0.expression) }
+          nodeCode[node]!.instructions.append(
+            Inst(
+              position: position!,
+              op: .call(fCall.identifier.function!, args)
+            )
+          )
         }
         if hitControlFlow {
           break
