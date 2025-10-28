@@ -21,6 +21,36 @@ public final class Parser {
     }
   }
 
+  public static func parse(_ text: String) throws -> ASTMatch {
+    var offset = text.startIndex
+    var parser = standard
+    var line = 0
+    var column = 0
+    while true {
+      let metadata = TokenMetadata(line: line, column: column)
+      do {
+        if offset >= text.endIndex {
+          return try parser.end()
+        } else {
+          let nextChar = String(text[offset])
+
+          offset = text.index(after: offset)
+
+          try parser.put(terminal: nextChar)
+
+          if nextChar == "\n" {
+            line += 1
+            column = 0
+          } else {
+            column += 1
+          }
+        }
+      } catch {
+        throw ParserReadError(metadata: metadata, error: error)
+      }
+    }
+  }
+
   private init() {}
 }
 

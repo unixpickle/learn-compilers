@@ -4,11 +4,6 @@ import Testing
 @testable import LearnCompilers
 
 @Test func testASTVariableResolution() async throws {
-  func parseCode(_ code: String) async throws -> ASTMatch {
-    var p = Parser.standard
-    return try await p.read(StringParserReader(code))
-  }
-
   let code = """
       fn main(x: int, w: int, z: int) -> int {
         print(x)
@@ -32,7 +27,7 @@ import Testing
       }
     """
 
-  let match = try await parseCode(code)
+  let match = try Parser.parse(code)
   var ast = AST(match: match)
   #expect(ast.codeString == code)
 
@@ -103,11 +98,6 @@ import Testing
 }
 
 @Test func testASTVariableResolutionErrors() async throws {
-  func parseCode(_ code: String) async throws -> ASTMatch {
-    var p = Parser.standard
-    return try await p.read(StringParserReader(code))
-  }
-
   let badCode = [
     """
     fn main() {
@@ -135,7 +125,7 @@ import Testing
   ]
 
   for code in badCode {
-    let match = try await parseCode(code)
+    let match = try Parser.parse(code)
     var ast = AST(match: match)
     #expect(ast.codeString == code)
 
@@ -149,11 +139,6 @@ import Testing
 }
 
 @Test func testASTFullDecoration() async throws {
-  func parseCode(_ code: String) async throws -> ASTMatch {
-    var p = Parser.standard
-    return try await p.read(StringParserReader(code))
-  }
-
   let code = """
       fn main(x: int, y: str) -> int {
         print(x)
@@ -200,7 +185,7 @@ import Testing
       }
     """
 
-  let match = try await parseCode(code)
+  let match = try Parser.parse(code)
   var ast = AST(match: match)
   #expect(ast.codeString == code)
 
@@ -261,11 +246,6 @@ import Testing
 }
 
 @Test func testASTFullDecorationErrors() async throws {
-  func parseCode(_ code: String) async throws -> ASTMatch {
-    var p = Parser.standard
-    return try await p.read(StringParserReader(code))
-  }
-
   let badCode = [
     """
     fn main() {
@@ -317,7 +297,7 @@ import Testing
   ]
 
   for code in badCode {
-    let match = try await parseCode(code)
+    let match = try Parser.parse(code)
     let ast = AST(match: match)
     #expect(ast.codeString == code)
 

@@ -5,7 +5,7 @@ public struct CFG {
     public var version: Int?
   }
 
-  public enum Argument {
+  public enum Argument: Hashable {
     case constInt(Int64)
     case variable(SSAVariable)
 
@@ -24,8 +24,8 @@ public struct CFG {
     }
   }
 
-  public struct Inst {
-    public enum Op {
+  public struct Inst: Hashable {
+    public enum Op: Hashable {
       case funcArg(SSAVariable, Int)
 
       /// Only to be used at the bottom of a node and passed a constant
@@ -36,7 +36,7 @@ public struct CFG {
       case call(Function, [Argument])
       case callAndStore(SSAVariable, Function, [Argument])
 
-      case consumeReturnVar(SSAVariable)
+      case consumeReturnVar(Argument)
 
       public var defs: [SSAVariable] {
         switch self {
@@ -54,7 +54,7 @@ public struct CFG {
         case .copy(_, let a): a.variables
         case .call(_, let args): args.flatMap { $0.variables }
         case .callAndStore(_, _, let args): args.flatMap { $0.variables }
-        case .consumeReturnVar(let v): [v]
+        case .consumeReturnVar(let v): v.variables
         }
       }
 
@@ -67,7 +67,7 @@ public struct CFG {
         case .call(let fn, let args): .call(fn, args.map { $0.replacing(v, with: r) })
         case .callAndStore(let target, let fn, let args):
           .callAndStore(target == v ? r : target, fn, args.map { $0.replacing(v, with: r) })
-        case .consumeReturnVar(let retVar): .consumeReturnVar(retVar == v ? r : retVar)
+        case .consumeReturnVar(let retVar): .consumeReturnVar(retVar.replacing(v, with: r))
         }
       }
     }
@@ -83,7 +83,7 @@ public struct CFG {
   public class Node: PointerHashable {
   }
 
-  public enum Successors {
+  public enum Successors: Hashable {
     case single(Node)
     case branch(ifFalse: Node, ifTrue: Node)
 
@@ -141,7 +141,7 @@ public struct CFG {
       nodeCode[end]!.instructions.append(
         Inst(
           position: retType.position!,
-          op: .consumeReturnVar(SSAVariable(variable: returnVar!))
+          op: .consumeReturnVar(.variable(SSAVariable(variable: returnVar!)))
         )
       )
     }
