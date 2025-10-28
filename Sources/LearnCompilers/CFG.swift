@@ -80,7 +80,16 @@ public struct CFG {
     public var instructions: [Inst]
   }
 
-  public class Node: PointerHashable {
+  public class Node: PointerHashable, CustomStringConvertible {
+    public let id: Int
+
+    public init(id: Int) {
+      self.id = id
+    }
+
+    public var description: String {
+      "Node(\(id))"
+    }
   }
 
   public enum Successors: Hashable {
@@ -102,6 +111,7 @@ public struct CFG {
   public var functions = [Function: Node]()
   public var returnVars = [Function: Variable]()
   private var tmpCounter: Int = 0
+  private var nodeIDCounter: Int = 0
 
   public init() {
   }
@@ -327,20 +337,29 @@ public struct CFG {
     return Variable(declarationPosition: position, name: "tmp[\(id)]", type: type)
   }
 
-  private mutating func addNode() -> Node {
-    let node = Node()
+  public mutating func addNode() -> Node {
+    let node = Node(id: nodeIDCounter)
+    nodeIDCounter += 1
     nodes.insert(node)
     nodeCode[node] = NodeCode(instructions: [])
     return node
   }
 
-  private mutating func addEdge(from: Node, to: Successors) {
+  public mutating func addEdge(from: Node, to: Successors) {
     if successors[from] != nil {
       fatalError("adding edge from node when edge already exists")
     }
     successors[from] = to
     for n in to.nodes {
       predecessors[n, default: []].insert(from)
+    }
+  }
+
+  public func successors(of: Node) -> [Node] {
+    if let succ = successors[of] {
+      succ.nodes
+    } else {
+      []
     }
   }
 
