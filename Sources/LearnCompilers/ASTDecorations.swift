@@ -41,16 +41,27 @@ public final class Scope: PointerHashable {
   }
 }
 
-public final class Variable: PointerHashable {
-  public enum DataType: Hashable, Sendable {
+public final class Variable: PointerHashable, CustomStringConvertible {
+  public enum DataType: Hashable, Sendable, CustomStringConvertible {
     case string
     case integer
+
+    public var description: String {
+      switch self {
+      case .string: "str"
+      case .integer: "int"
+      }
+    }
   }
 
   public let declarationPosition: Position
   public let name: String
   public let type: DataType
   public let isArgument: Bool
+
+  public var description: String {
+    "Variable(name=\(name), type=\(type), isArgument=\(isArgument), pos=\(declarationPosition))"
+  }
 
   public init(
     declarationPosition p: Position,

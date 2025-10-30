@@ -204,3 +204,178 @@ import Testing
   #expect(ifFalseBranch1Code.instructions[1].op == .copy(arg0, .variable(dst)))
   #expect(cfg.successors[ifFalseBranch1]! == .single(whileCondNode))
 }
+
+@Test func testCFGIntoSSA() throws {
+  let code = """
+      fn main(x: int, y: str) -> int {
+        print(x)
+        print(y)
+
+        y: int = x
+        print(y)
+
+        while? (lt(x, add(5,5))) {
+          if? (eq(x, 5)) {
+            return!(x)
+          }
+          if? (eq(x, 20)) {
+            break!()
+          }
+          x = add(x, 1)
+        }
+        return!(sub(y, 10))
+      }
+
+      fn print(x: int) {
+      }
+
+      fn print(x: str) {
+        while? (1) {
+          return!()
+        }
+      }
+
+      fn lt(x: int, y: int) -> int {
+        return!(x)
+      }
+
+      fn eq(x: int, y: int) -> int {
+        return!(sub(x, y))
+      }
+
+      fn sub(x: int, y: int) -> int {
+        return!(x)
+      }
+
+      fn add(x: int, y: int) -> int {
+        return!(x)
+      }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+  try cfg.insertPhiAndNumberVars()
+  checkSSA(cfg: cfg)
+  checkPhi(cfg: cfg)
+}
+
+@Test func testCFGIntoSSAWithMissingReturn() throws {
+  let code = """
+      fn main(x: int, y: str) -> str {
+        if? (x) {
+          return!(y)
+        }
+      }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+
+  #expect(throws: SSAError.self) {
+    var c1 = cfg
+    try c1.insertPhiAndNumberVars(allowMissingReturn: false)
+  }
+  try cfg.insertPhiAndNumberVars(allowMissingReturn: true)
+  checkSSA(cfg: cfg)
+}
+
+@Test func testCFGIntoSSASelfAssign() throws {
+  let code = """
+      fn main(x: int, y: str) {
+        x = x
+      }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+
+  try cfg.insertPhiAndNumberVars()
+  checkSSA(cfg: cfg)
+  checkPhi(cfg: cfg)
+}
+
+/// Check SSA condition that variable versions are only assigned once.
+func checkSSA(cfg: CFG) {
+  var assignmentCount = [CFG.SSAVariable: Int]()
+  for node in cfg.nodes {
+    for inst in cfg.nodeCode[node]!.instructions {
+      for def in inst.op.defs {
+        assignmentCount[def, default: 0] += 1
+      }
+    }
+  }
+  for (v, count) in assignmentCount {
+    #expect(count == 1, "variable \(v) assigned \(count) times")
+  }
+
+  // Ensure no instruction uses a variable it also defines.
+  for node in cfg.nodes {
+    for inst in cfg.nodeCode[node]!.instructions {
+      let uses = Set(inst.op.uses)
+      #expect(inst.op.defs.filter(uses.contains).isEmpty)
+    }
+  }
+}
+
+/// Check that all phi functions are filled in
+func checkPhi(cfg: CFG) {
+  for node in cfg.nodes {
+    let preds = cfg.predecessors[node, default: []]
+    let phis = cfg.nodeCode[node]!.instructions.filter {
+      if case .phi = $0.op {
+        true
+      } else {
+        false
+      }
+    }
+    if preds.count == 0 {
+      #expect(phis.count == 0, "root node should not have phis")
+      continue
+    }
+
+    for inst in cfg.nodeCode[node]!.instructions {
+      if case .phi(_, let branches) = inst.op {
+        #expect(
+          Set(branches.keys) == Set(preds),
+          "phi function is missing or has extra source(s)"
+        )
+      }
+    }
+  }
+}

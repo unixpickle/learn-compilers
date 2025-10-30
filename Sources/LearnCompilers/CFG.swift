@@ -1,3 +1,7 @@
+public enum SSAError: Error {
+  case missingReturn(Position)
+}
+
 public struct CFG {
 
   public struct SSAVariable: Hashable {
@@ -37,12 +41,14 @@ public struct CFG {
       case callAndStore(SSAVariable, Function, [Argument])
 
       case consumeReturnVar(Argument)
+      case phi(SSAVariable, [Node: Argument])
 
       public var defs: [SSAVariable] {
         switch self {
         case .funcArg(let v, _): [v]
         case .copy(let v, _): [v]
         case .callAndStore(let v, _, _): [v]
+        case .phi(let v, _): [v]
         default: []
         }
       }
@@ -55,19 +61,30 @@ public struct CFG {
         case .call(_, let args): args.flatMap { $0.variables }
         case .callAndStore(_, _, let args): args.flatMap { $0.variables }
         case .consumeReturnVar(let v): v.variables
+        case .phi(_, let args): args.flatMap { (_, v) in v.variables }
         }
       }
 
-      public func replacing(_ v: SSAVariable, with r: SSAVariable) -> Self {
+      public func replacing(
+        _ v: SSAVariable,
+        with r: SSAVariable,
+        replaceDefs: Bool = true
+      ) -> Self {
         switch self {
-        case .funcArg(let target, let idx): .funcArg(target == v ? r : target, idx)
+        case .funcArg(let target, let idx): .funcArg(replaceDefs && target == v ? r : target, idx)
         case .check(let a): .check(a.replacing(v, with: r))
         case .copy(let target, let source):
-          .copy(target == v ? r : target, source.replacing(v, with: r))
+          .copy(replaceDefs && target == v ? r : target, source.replacing(v, with: r))
         case .call(let fn, let args): .call(fn, args.map { $0.replacing(v, with: r) })
         case .callAndStore(let target, let fn, let args):
-          .callAndStore(target == v ? r : target, fn, args.map { $0.replacing(v, with: r) })
+          .callAndStore(
+            replaceDefs && target == v ? r : target, fn, args.map { $0.replacing(v, with: r) }
+          )
         case .consumeReturnVar(let retVar): .consumeReturnVar(retVar.replacing(v, with: r))
+        case .phi(let target, let mapping):
+          .phi(
+            replaceDefs && target == v ? r : target, mapping.mapValues { $0.replacing(v, with: r) }
+          )
         }
       }
     }
@@ -120,14 +137,153 @@ public struct CFG {
     add(ast: ast)
   }
 
-  // Add an entire AST to the graph.
+  /// Insert phi functions along dominance frontiers and assign versions to
+  /// variables to create a proper SSA.
+  ///
+  /// This uses semi-pruned SSA, only inserting phi functions for variables
+  /// that are used in more than one block.
+  ///
+  /// After the call, some phi functions may still be redundant due to creating
+  /// dead variables. Further optimization must be done to prune these.
+  public mutating func insertPhiAndNumberVars(allowMissingReturn: Bool = true) throws {
+    let domTree = DominatorTree(cfg: self)
+    insertPhi(domTree: domTree)
+    try numberVariables(domTree: domTree, allowMissingReturn: allowMissingReturn)
+  }
+
+  private mutating func insertPhi(domTree: DominatorTree) {
+    var varToNode = [Variable: Set<Node>]()
+    var nodeToFrontier = [Node: Set<Node>]()
+
+    var orderedVars = [Variable]()
+
+    for node in nodes.sorted(by: { $0.id < $1.id }) {
+      nodeToFrontier[node] = domTree.dominanceFrontier(of: node)
+      for inst in nodeCode[node]!.instructions {
+        for v in inst.op.defs + inst.op.uses {
+          if varToNode[v.variable] == nil {
+            orderedVars.append(v.variable)
+          }
+          varToNode[v.variable, default: []].insert(node)
+        }
+      }
+    }
+
+    // Mark phi functions for insertion in a deterministic order.
+    var nodeToPhis = [Node: Set<Variable>]()
+    var nodeToPhisOrdered = [Node: [Variable]]()
+    for v in orderedVars {
+      let vNodes = varToNode[v]!
+      if vNodes.count == 1 {
+        continue
+      }
+      let allFrontier = vNodes.map { nodeToFrontier[$0]! }.reduce(Set(), { $0.union($1) })
+      for frontierNode in allFrontier {
+        if !nodeToPhis[frontierNode, default: []].contains(v) {
+          nodeToPhis[frontierNode, default: []].insert(v)
+          nodeToPhisOrdered[frontierNode, default: []].append(v)
+        }
+      }
+    }
+
+    // Insert phi functions into the top of each node's instruction stream.
+    for (node, vars) in nodeToPhisOrdered {
+      var code = nodeCode[node]!
+      for (i, v) in vars.enumerated() {
+        // The position of this instruction is basically wrong, as it points to the
+        // definition of the variable, but we shouldn't end up using it.
+        code.instructions.insert(
+          Inst(position: v.declarationPosition, op: .phi(SSAVariable(variable: v), [:])),
+          at: i
+        )
+      }
+      nodeCode[node] = code
+    }
+  }
+
+  private mutating func numberVariables(domTree: DominatorTree, allowMissingReturn: Bool) throws {
+    var queue: [(Node, [Variable: Int])] = domTree.roots.map { ($0, [:]) }
+
+    var versionCounter = [Variable: Int]()
+    func makeVersion(_ v: Variable) -> Int {
+      if let nextV = versionCounter[v] {
+        versionCounter[v] = nextV + 1
+        return nextV
+      } else {
+        versionCounter[v] = 1
+        return 0
+      }
+    }
+
+    while let (node, versionsIn) = queue.popLast() {
+      var curVersions = versionsIn
+      let code = nodeCode[node]!
+      var newCode = code
+      for (i, var inst) in code.instructions.enumerated() {
+        if case .phi = inst.op {
+          // For phi functions, versions are filled in indirectly by predecessors.
+        } else {
+          for v in inst.op.uses {
+            guard let curV = curVersions[v.variable] else {
+              fatalError("variable \(v.variable) used before assignment in instruction \(inst)")
+            }
+            inst.op = inst.op.replacing(
+              v,
+              with: SSAVariable(variable: v.variable, version: curV),
+              replaceDefs: false
+            )
+          }
+        }
+        for v in inst.op.defs {
+          let newVersion = makeVersion(v.variable)
+          inst.op = inst.op.replacing(
+            v, with: SSAVariable(variable: v.variable, version: newVersion)
+          )
+          curVersions[v.variable] = newVersion
+        }
+        newCode.instructions[i] = inst
+      }
+      nodeCode[node] = newCode
+
+      // Fill in successor phi functions now that we have versions.
+      for successor in successors(of: node) {
+        let code = nodeCode[successor]!
+        var newCode = code
+        for (i, var inst) in code.instructions.enumerated() {
+          if case .phi(let v, var branches) = inst.op {
+            guard let curV = curVersions[v.variable] else {
+              if Set(returnVars.values).contains(v.variable) {
+                if !allowMissingReturn {
+                  throw SSAError.missingReturn(v.variable.declarationPosition)
+                }
+                continue
+              } else {
+                fatalError("variable \(v.variable) used in phi before assignment")
+              }
+            }
+            branches[node] = .variable(SSAVariable(variable: v.variable, version: curV))
+            inst.op = .phi(v, branches)
+            newCode.instructions[i] = inst
+          }
+        }
+        nodeCode[successor] = newCode
+      }
+
+      // DFS on children.
+      for child in domTree.children[node, default: []] {
+        queue.append((child, curVersions))
+      }
+    }
+  }
+
+  /// Add an entire AST to the graph.
   public mutating func add(ast: AST) {
     for fn in ast.functions {
       add(fn: fn)
     }
   }
 
-  // Add a function to the graph, given its declaration.
+  /// Add a function to the graph, given its declaration.
   public mutating func add(fn: AST.FuncDecl) {
     let head = addNode()
     let end = addNode()
