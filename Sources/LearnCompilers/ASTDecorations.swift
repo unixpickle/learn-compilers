@@ -76,7 +76,7 @@ public final class Variable: PointerHashable, CustomStringConvertible {
   }
 }
 
-public final class Function: PointerHashable {
+public final class Function: Hashable, Sendable {
   public struct Signature: Hashable, Sendable {
     let args: [Variable.DataType]
     let ret: Variable.DataType?
@@ -85,11 +85,26 @@ public final class Function: PointerHashable {
   public let declarationPosition: Position
   public let name: String
   public let signature: Signature
+  public let builtIn: BuiltInFunction?
 
-  public init(declarationPosition p: Position, name n: String, signature s: Signature) {
+  public init(
+    declarationPosition p: Position,
+    name n: String,
+    signature s: Signature,
+    builtIn b: BuiltInFunction? = nil
+  ) {
     declarationPosition = p
     name = n
     signature = s
+    builtIn = b
+  }
+
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(ObjectIdentifier(self))
+  }
+
+  public static func == (lhs: Function, rhs: Function) -> Bool {
+    ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
   }
 }
 
@@ -112,6 +127,12 @@ public struct ScopeTable {
     scopeParent = [:]
     scopeVariables = [:]
     functions = [:]
+  }
+
+  public mutating func addBuiltIns() {
+    for fn in BuiltInFunction.functions {
+      functions[fn.name, default: []].append(fn)
+    }
   }
 
   public func resolveFunc(name: String, args: [Variable.DataType]) -> Function? {
