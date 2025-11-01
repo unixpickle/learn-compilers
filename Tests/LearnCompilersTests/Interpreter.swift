@@ -10,6 +10,11 @@ import Testing
   }
 }
 
+@Test func testInterpreterTableFormat() throws {
+  let cfg = try codeToCFG(TableFormatImplementation)
+  try checkTableFormatImplementation(cfg: cfg)
+}
+
 private func codeToCFG(_ code: String) throws -> CFG {
   let match = try Parser.parse(code)
   var ast = AST(match: match)
