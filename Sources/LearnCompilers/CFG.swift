@@ -40,7 +40,8 @@ public struct CFG {
       case call(Function, [Argument])
       case callAndStore(SSAVariable, Function, [Argument])
 
-      case consumeReturnVar(Argument)
+      case returnValue(Argument)
+      case returnVoid
       case phi(SSAVariable, [Node: Argument])
 
       public var defs: [SSAVariable] {
@@ -60,7 +61,8 @@ public struct CFG {
         case .copy(_, let a): a.variables
         case .call(_, let args): args.flatMap { $0.variables }
         case .callAndStore(_, _, let args): args.flatMap { $0.variables }
-        case .consumeReturnVar(let v): v.variables
+        case .returnValue(let v): v.variables
+        case .returnVoid: []
         case .phi(_, let args): args.flatMap { (_, v) in v.variables }
         }
       }
@@ -80,7 +82,8 @@ public struct CFG {
           .callAndStore(
             replaceDefs && target == v ? r : target, fn, args.map { $0.replacing(v, with: r) }
           )
-        case .consumeReturnVar(let retVar): .consumeReturnVar(retVar.replacing(v, with: r))
+        case .returnValue(let retVar): .returnValue(retVar.replacing(v, with: r))
+        case .returnVoid: self
         case .phi(let target, let mapping):
           .phi(
             replaceDefs && target == v ? r : target, mapping.mapValues { $0.replacing(v, with: r) }
@@ -307,7 +310,14 @@ public struct CFG {
       nodeCode[end]!.instructions.append(
         Inst(
           position: retType.position!,
-          op: .consumeReturnVar(.variable(SSAVariable(variable: returnVar!)))
+          op: .returnValue(.variable(SSAVariable(variable: returnVar!)))
+        )
+      )
+    } else {
+      nodeCode[end]!.instructions.append(
+        Inst(
+          position: fn.position!,  // TODO: not particularly correct or useful
+          op: .returnVoid
         )
       )
     }

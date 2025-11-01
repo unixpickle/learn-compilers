@@ -137,7 +137,7 @@ import Testing
   }
   let mainTailCode = cfg.nodeCode[mainTail]!
   #expect(mainTailCode.instructions.count == 1)
-  #expect(mainTailCode.instructions[0].op == .consumeReturnVar(.variable(mainRetVar)))
+  #expect(mainTailCode.instructions[0].op == .returnValue(.variable(mainRetVar)))
 
   let whileBodyCode = cfg.nodeCode[whileBodyNode]!
   #expect(whileBodyCode.instructions.count == 2)
