@@ -30,10 +30,10 @@ public struct CFG {
 
   public struct Inst: Hashable {
     public enum Op: Hashable {
+      /// Only to be used at the top of an entrypoint node.
       case funcArg(SSAVariable, Int)
 
-      /// Only to be used at the bottom of a node and passed a constant
-      /// or integer variable.
+      /// Only to be used at the bottom of a node.
       case check(Argument)
 
       case copy(SSAVariable, Argument)
@@ -275,6 +275,26 @@ public struct CFG {
       // DFS on children.
       for child in domTree.children[node, default: []] {
         queue.append((child, curVersions))
+      }
+    }
+  }
+
+  /// Raise an error if any functions are missing returns.
+  ///
+  /// This can happen late in the game because `insertPhiAndNumberVars()`
+  /// doesn't check for this, to allow dead code elimination to remove the
+  /// need for returns in some cases.
+  public func checkMissingReturns() throws {
+    for node in nodes {
+      let code = nodeCode[node]!
+      for inst in code.instructions {
+        if case .phi(_, let branches) = inst.op {
+          if Set(branches.keys) != Set(predecessors[node, default: []]) {
+            // The phi block takes its position from consumption of the variable,
+            // which is in turn exactly where the return type is declared.
+            throw SSAError.missingReturn(inst.position)
+          }
+        }
       }
     }
   }

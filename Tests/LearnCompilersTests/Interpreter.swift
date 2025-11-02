@@ -31,6 +31,6 @@ private func codeToCFG(_ code: String) throws -> CFG {
   }
 
   var cfg = CFG(ast: ast)
-  try cfg.insertPhiAndNumberVars()
+  try cfg.insertPhiAndNumberVars(allowMissingReturn: false)
   return cfg
 }
