@@ -96,6 +96,8 @@ open class Interpreter {
       switch arg {
       case .constInt(let x):
         .integer(x)
+      case .constStr(let x):
+        .string(x)
       case .variable(let v):
         state.vars[v]!
       }
@@ -130,12 +132,7 @@ open class Interpreter {
         fatalError("phi argument not defined for source node")
       }
       var nextState = state
-      switch sourceVar {
-      case .variable(let v):
-        nextState.vars[target] = state.vars[v]!
-      case .constInt(let x):
-        nextState.vars[target] = .integer(x)
-      }
+      nextState.vars[target] = argToVarValue(sourceVar)
       nextState.nextInst += 1
       stack.append(nextState)
     case .returnValue(let valueArg):
@@ -230,6 +227,8 @@ open class Interpreter {
       }
     case .constInt(let x):
       x != 0
+    case .constStr(let x):
+      !x.isEmpty
     }
   }
 

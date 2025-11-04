@@ -11,11 +11,13 @@ public struct CFG {
 
   public enum Argument: Hashable {
     case constInt(Int64)
+    case constStr(String)
     case variable(SSAVariable)
 
     internal var variables: [SSAVariable] {
       switch self {
       case .constInt(_): []
+      case .constStr(_): []
       case .variable(let v): [v]
       }
     }
@@ -23,6 +25,7 @@ public struct CFG {
     public func replacing(_ v: SSAVariable, with r: SSAVariable) -> Self {
       switch self {
       case .constInt(_): self
+      case .constStr(_): self
       case .variable(let v1): .variable(v1 == v ? r : v1)
       }
     }
@@ -90,6 +93,23 @@ public struct CFG {
           )
         }
       }
+
+      public func replacing(
+        arg: Argument,
+        with r: Argument
+      ) -> Self {
+        switch self {
+        case .check(let a): .check(a == arg ? r : a)
+        case .copy(let target, let source):
+          .copy(target, source == arg ? r : source)
+        case .call(let fn, let args): .call(fn, args.map { $0 == arg ? r : $0 })
+        case .callAndStore(let target, let fn, let args):
+          .callAndStore(target, fn, args.map { $0 == arg ? r : $0 })
+        case .returnValue(let retVar): .returnValue(retVar == arg ? r : retVar)
+        case .phi(let target, let mapping): .phi(target, mapping.mapValues { $0 == arg ? r : $0 })
+        default: self
+        }
+      }
     }
 
     public let position: Position
@@ -98,6 +118,17 @@ public struct CFG {
 
   public struct NodeCode {
     public var instructions: [Inst]
+
+    public func replacing(
+      arg: Argument,
+      with r: Argument
+    ) -> NodeCode {
+      NodeCode(
+        instructions: instructions.map { inst in
+          .init(position: inst.position, op: inst.op.replacing(arg: arg, with: r))
+        }
+      )
+    }
   }
 
   public class Node: PointerHashable, CustomStringConvertible {
@@ -129,7 +160,6 @@ public struct CFG {
   public var successors = [Node: Successors]()
   public var predecessors = [Node: Set<Node>]()
   public var functions = [Function: Node]()
-  public var returnVars = [Function: Variable]()
   private var tmpCounter: Int = 0
   private var nodeIDCounter: Int = 0
 
@@ -218,6 +248,8 @@ public struct CFG {
       }
     }
 
+    let allReturnVars = Set(returnVariables())
+
     while let (node, versionsIn) = queue.popLast() {
       var curVersions = versionsIn
       let code = nodeCode[node]!
@@ -228,7 +260,14 @@ public struct CFG {
         } else {
           for v in inst.op.uses {
             guard let curV = curVersions[v.variable] else {
-              fatalError("variable \(v.variable) used before assignment in instruction \(inst)")
+              if allReturnVars.contains(v.variable) {
+                if !allowMissingReturn {
+                  throw SSAError.missingReturn(v.variable.declarationPosition)
+                }
+                continue
+              } else {
+                fatalError("variable \(v.variable) used before assignment in instruction \(inst)")
+              }
             }
             inst.op = inst.op.replacing(
               v,
@@ -255,7 +294,7 @@ public struct CFG {
         for (i, var inst) in code.instructions.enumerated() {
           if case .phi(let v, var branches) = inst.op {
             guard let curV = curVersions[v.variable] else {
-              if Set(returnVars.values).contains(v.variable) {
+              if allReturnVars.contains(v.variable) {
                 if !allowMissingReturn {
                   throw SSAError.missingReturn(v.variable.declarationPosition)
                 }
@@ -285,6 +324,19 @@ public struct CFG {
   /// doesn't check for this, to allow dead code elimination to remove the
   /// need for returns in some cases.
   public func checkMissingReturns() throws {
+    // This detects when NO branches return, i.e. a return var is never defined.
+    let allDefs = Set(
+      nodes.flatMap { node in
+        nodeCode[node]!.instructions.flatMap { $0.op.defs.map { $0.variable } }
+      }
+    )
+    for retVar in returnVariables() {
+      if !allDefs.contains(retVar) {
+        throw SSAError.missingReturn(retVar.declarationPosition)
+      }
+    }
+
+    // This detects when some branches don't return but others do
     for node in nodes {
       let code = nodeCode[node]!
       for inst in code.instructions {
@@ -297,6 +349,54 @@ public struct CFG {
         }
       }
     }
+  }
+
+  /// Get all variables passed to a return.
+  public func returnVariables() -> [Variable] {
+    nodes.flatMap { node in
+      nodeCode[node]!.instructions.compactMap { inst in
+        if case .returnValue(.variable(let ssaVar)) = inst.op {
+          ssaVar.variable
+        } else {
+          nil
+        }
+      }
+    }
+  }
+
+  /// Get a mapping of functions to return variables.
+  public func returnVariableMap() -> [Function: Variable] {
+    var result = [Function: Variable]()
+    for (fn, entrypoint) in functions {
+      let nodes = dfsFrom(node: entrypoint)
+      for node in nodes {
+        for inst in nodeCode[node]!.instructions {
+          if case .returnValue(.variable(let ssaVar)) = inst.op {
+            assert(result[fn] == nil, "multiple return instructions should not exist")
+            result[fn] = ssaVar.variable
+          }
+        }
+      }
+    }
+    return result
+  }
+
+  /// Perform a depth-first search from a given node and return the DFS-ordered
+  /// list of discovered nodes (including the node itself).
+  public func dfsFrom(node: Node) -> [Node] {
+    var nodeSet: Set<Node> = [node]
+    var nodeArr = [node]
+    var queue = [node]
+    while let n = queue.popLast() {
+      for succ in successors(of: n).reversed() {
+        if !nodeSet.contains(succ) {
+          nodeSet.insert(succ)
+          nodeArr.append(succ)
+          queue.append(succ)
+        }
+      }
+    }
+    return nodeArr
   }
 
   /// Add an entire AST to the graph.
@@ -326,7 +426,6 @@ public struct CFG {
         name: "<return value>",
         type: retType.retType.dataType
       )
-      returnVars[fn.function!] = returnVar!
       nodeCode[end]!.instructions.append(
         Inst(
           position: retType.position!,

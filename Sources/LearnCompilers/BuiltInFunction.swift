@@ -77,4 +77,55 @@ public enum BuiltInFunction: Hashable, Sendable {
       )
     }
   }()
+
+  /// Reduce a function to a constant value or to one of its arguments.
+  ///
+  /// Returns nil if no such reduction is available.
+  public static func reduceConstants(fn: Function, args: [CFG.Argument]) -> CFG.Argument? {
+    guard let builtIn = fn.builtIn else {
+      return nil
+    }
+    switch builtIn {
+    case .add:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x + y)
+      } else if case .constInt(0) = args[0] {
+        return args[1]
+      } else if case .constInt(0) = args[1] {
+        return args[0]
+      }
+    case .sub:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x - y)
+      } else if case .constInt(0) = args[1] {
+        return args[0]
+      }
+    case .lt:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x < y ? 1 : 0)
+      }
+    case .gt:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x > y ? 1 : 0)
+      }
+    case .and:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x & y)
+      }
+    case .or:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x | y)
+      }
+    case .eqInt:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x == y ? 1 : 0)
+      }
+    case .notInt:
+      if case .constInt(let x) = args[0] {
+        return .constInt(x == 0 ? 1 : 0)
+      }
+    default: ()
+    }
+    return nil
+  }
 }

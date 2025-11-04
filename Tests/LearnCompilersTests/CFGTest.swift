@@ -66,7 +66,7 @@ import Testing
   let cfg = CFG(ast: ast)
   let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
   let mainEntrypoint = cfg.functions[mainFunction]!
-  let mainRetVar = CFG.SSAVariable(variable: cfg.returnVars[mainFunction]!)
+  let mainRetVar = CFG.SSAVariable(variable: cfg.returnVariableMap()[mainFunction]!)
 
   let mainFunctionDecl = ast.functions[0]
   let arg0 = CFG.SSAVariable(variable: mainFunctionDecl.args[0].identifier.variable!)
@@ -330,8 +330,41 @@ import Testing
   checkPhi(cfg: cfg)
 }
 
+@Test func testCFGIntoSSALoopWithoutAssignment() throws {
+  let code = """
+      fn main(x: int, y: str) {
+        while? (x) {
+          if? (y) {
+            x = 0
+          }
+        }
+      }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+
+  try cfg.insertPhiAndNumberVars()
+  checkSSA(cfg: cfg)
+  checkPhi(cfg: cfg)
+}
+
 /// Check SSA condition that variable versions are only assigned once.
 func checkSSA(cfg: CFG) {
+  let domTree = DominatorTree(cfg: cfg)
+
   var assignmentCount = [CFG.SSAVariable: Int]()
   for node in cfg.nodes {
     for inst in cfg.nodeCode[node]!.instructions {
@@ -346,24 +379,38 @@ func checkSSA(cfg: CFG) {
 
   // Ensure no instruction uses a variable it also defines.
   for node in cfg.nodes {
+    let dominating = Set(domTree.dominated(by: node)).subtracting([node])
+    let domSelf = !Set(cfg.predecessors[node, default: []]).intersection(dominating).isEmpty
+
     for inst in cfg.nodeCode[node]!.instructions {
+      if domSelf, case .phi = inst.op {
+        // If a node dominates a predecessor, then phi functions can use variables
+        // that they also define.
+        continue
+      }
       let uses = Set(inst.op.uses)
-      #expect(inst.op.defs.filter(uses.contains).isEmpty)
+      #expect(inst.op.defs.filter(uses.contains).isEmpty, "\(inst.op)")
     }
   }
 }
 
 /// Check that all phi functions are filled in
 func checkPhi(cfg: CFG) {
-  for node in cfg.nodes {
-    let preds = cfg.predecessors[node, default: []]
-    let phis = cfg.nodeCode[node]!.instructions.filter {
+  func phis(node: CFG.Node) -> [CFG.Inst] {
+    cfg.nodeCode[node]!.instructions.filter {
       if case .phi = $0.op {
         true
       } else {
         false
       }
     }
+  }
+  for node in cfg.functions.values {
+    #expect(phis(node: node).isEmpty, "entrypoint should not contain phi")
+  }
+  for node in cfg.nodes {
+    let preds = cfg.predecessors[node, default: []]
+    let phis = phis(node: node)
     if preds.count == 0 {
       #expect(phis.count == 0, "root node should not have phis")
       continue

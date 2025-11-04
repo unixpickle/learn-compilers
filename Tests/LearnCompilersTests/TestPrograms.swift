@@ -125,3 +125,33 @@ func checkTableFormatImplementation(cfg: CFG) throws {
     }
   }
 }
+
+enum OptLevel {
+  case none
+  case basic
+}
+
+internal func codeToCFG(_ code: String, opt: OptLevel) throws -> CFG {
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  table.addBuiltIns()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    throw errors.first!
+  }
+
+  var cfg = CFG(ast: ast)
+  try cfg.insertPhiAndNumberVars(allowMissingReturn: opt != .none)
+  if opt != .none {
+    cfg.propagateConstantsAndCopies(fnReduction: BuiltInFunction.reduceConstants)
+    cfg.eliminateConstantBranches()
+    try cfg.checkMissingReturns()
+  }
+  return cfg
+}
