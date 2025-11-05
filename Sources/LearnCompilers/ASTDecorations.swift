@@ -1,7 +1,11 @@
-public struct Position: Hashable, Sendable {
+public struct Position: Hashable, Sendable, CustomStringConvertible {
   public var fileID: String
   public var line: Int
   public var column: Int
+
+  public var description: String {
+    "\(fileID):\(line+1):\(column+1)"
+  }
 
   public init(fileID: String, line: Int = 0, column: Int = 0) {
     self.fileID = fileID
@@ -76,7 +80,7 @@ public final class Variable: PointerHashable, CustomStringConvertible {
   }
 }
 
-public final class Function: Hashable, Sendable {
+public final class Function: Hashable, Sendable, CustomStringConvertible {
   public struct Signature: Hashable, Sendable {
     let args: [Variable.DataType]
     let ret: Variable.DataType?
@@ -86,6 +90,10 @@ public final class Function: Hashable, Sendable {
   public let name: String
   public let signature: Signature
   public let builtIn: BuiltInFunction?
+
+  public var description: String {
+    "Function(name=\(name), args=\(signature.args) ret=\(String(describing: signature.ret)))"
+  }
 
   public init(
     declarationPosition p: Position,

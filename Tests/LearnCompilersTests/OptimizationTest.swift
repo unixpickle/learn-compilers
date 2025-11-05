@@ -46,6 +46,43 @@ import Testing
   verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basic))
 }
 
+@Test func testBasicOptimizationCascadingConstants() throws {
+  // The first branch should never be taken, so b should be constant
+  // 0, so print is never called.
+  let code = """
+    fn main(x: int) {
+      a: int = add(x, 0)
+      b: int = 0
+      if? (not(eq(a, x))) {
+        b = 1
+      }
+      if? (b) {
+        print(str(b))
+      }
+    }
+    """
+
+  func containsPrint(cfg: CFG) -> Bool {
+    for (_, code) in cfg.nodeCode {
+      for inst in code.instructions {
+        if case .call(let fn, _) = inst.op {
+          if fn.builtIn == .print {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  let naiveCFG = try codeToCFG(code, opt: .none)
+  verifyCFGInvariants(cfg: naiveCFG)
+  #expect(containsPrint(cfg: naiveCFG), "naive CFG shouldn't optimize away print")
+  let optCFG = try codeToCFG(code, opt: .basic)
+  verifyCFGInvariants(cfg: optCFG)
+  #expect(!containsPrint(cfg: optCFG), "optimized CFG should optimize away print")
+}
+
 @Test func testBasicOptimizationFibonacci() throws {
   for code in FibonacciImplementations {
     let cfg = try codeToCFG(code, opt: .basic)

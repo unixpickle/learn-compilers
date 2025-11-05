@@ -149,8 +149,7 @@ internal func codeToCFG(_ code: String, opt: OptLevel) throws -> CFG {
   var cfg = CFG(ast: ast)
   try cfg.insertPhiAndNumberVars(allowMissingReturn: opt != .none)
   if opt != .none {
-    cfg.propagateConstantsAndCopies(fnReduction: BuiltInFunction.reduce)
-    cfg.eliminateConstantBranches()
+    cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
     try cfg.checkMissingReturns()
   }
   return cfg

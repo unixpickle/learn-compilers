@@ -1,5 +1,30 @@
 extension CFG {
 
+  /// Perform basic optimizations on the SSA representation.
+  @discardableResult
+  public mutating func performBasicOptimizations(
+    fnReduction: ((Function, [Argument]) -> Argument?)? = nil
+  ) -> Bool {
+    var converged = false
+    var changed = false
+    while !converged {
+      converged = true
+      if propagateConstantsAndCopies(fnReduction: fnReduction) {
+        converged = false
+      }
+      if eliminateConstantBranches() {
+        converged = false
+      }
+      if eliminateUnusedVariables() {
+        converged = false
+      }
+      if !converged {
+        changed = true
+      }
+    }
+    return changed
+  }
+
   /// Perform constant propagation, optionally using a helper to
   /// reduce function calls with constant arguments to constants.
   /// Also propagates copies by eliminating duplicated variables.
@@ -122,12 +147,73 @@ extension CFG {
       nodeCode.removeValue(forKey: next)
       for successor in successors(of: next) {
         predecessors[successor]!.remove(next)
+
         if predecessors[successor]!.isEmpty {
           queue.append(successor)
+        } else {
+          // Remove relevant arguments to successor phi functions
+          var succCode = nodeCode[successor]!
+          for (i, var inst) in succCode.instructions.enumerated() {
+            if case .phi(let target, var sources) = inst.op, sources[next] != nil {
+              sources.removeValue(forKey: next)
+              inst.op = .phi(target, sources)
+              succCode.instructions[i] = inst
+            }
+          }
+          nodeCode[successor] = succCode
         }
       }
       successors.removeValue(forKey: next)
     }
+  }
+
+  /// Remove variable definitions that have no uses.
+  @discardableResult
+  public mutating func eliminateUnusedVariables() -> Bool {
+    var succeeded = false
+    var converged = false
+    while !converged {
+      converged = true
+
+      var usageCount = [SSAVariable: Int]()
+      for node in nodes {
+        for inst in nodeCode[node]!.instructions {
+          // Exclude phi's with itself as an argument
+          let defs = Set(inst.op.defs)
+          let uses = Set(inst.op.uses).subtracting(defs)
+
+          for use in uses {
+            usageCount[use, default: 0] += 1
+          }
+        }
+      }
+
+      for node in nodes {
+        var newCode = nodeCode[node]!
+        var i = 0
+        while i < newCode.instructions.count {
+          let inst = newCode.instructions[i]
+          let defs = inst.op.defs
+          if let def = defs.first, defs.count == 1, usageCount[def] == 0 {
+            if case .callAndStore(_, let fn, let args) = inst.op {
+              // The function call might have side-effects that we want to keep.
+              newCode.instructions[i].op = .call(fn, args)
+              i += 1
+            } else {
+              newCode.instructions.remove(at: i)
+            }
+            converged = false
+          } else {
+            i += 1
+          }
+        }
+        nodeCode[node] = newCode
+      }
+      if !converged {
+        succeeded = true
+      }
+    }
+    return succeeded
   }
 
 }
