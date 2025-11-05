@@ -27,14 +27,7 @@ extension CFG {
             variable = target
             newArgument = source
           case .callAndStore(let target, let fn, let args):
-            let allConstants = args.allSatisfy {
-              if case .variable = $0 {
-                false
-              } else {
-                true
-              }
-            }
-            if allConstants, let red = fnReduction, let newValue = red(fn, args) {
+            if let red = fnReduction, let newValue = red(fn, args) {
               variable = target
               newArgument = newValue
             }

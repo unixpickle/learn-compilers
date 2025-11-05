@@ -30,6 +30,20 @@ import Testing
     try codeToCFG(code, opt: .none)
   }
   verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basic))
+
+  code = """
+    fn main(x: int) -> int {
+      a: int = add(x, 0)
+      b: int = add(0, x)
+      while? (and(eq(x, b), eq(a, x))) {
+        print(str(0))
+      }
+    }
+    """
+  #expect(throws: SSAError.self) {
+    try codeToCFG(code, opt: .none)
+  }
+  verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basic))
 }
 
 @Test func testBasicOptimizationFibonacci() throws {

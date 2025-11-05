@@ -186,6 +186,7 @@ public struct CFG {
 
   private mutating func insertPhi(domTree: DominatorTree) {
     var varToNode = [Variable: Set<Node>]()
+    var varToDef = [Variable: Set<Node>]()
     var nodeToFrontier = [Node: Set<Node>]()
 
     var orderedVars = [Variable]()
@@ -199,6 +200,9 @@ public struct CFG {
           }
           varToNode[v.variable, default: []].insert(node)
         }
+        for v in inst.op.defs {
+          varToDef[v.variable, default: []].insert(node)
+        }
       }
     }
 
@@ -206,11 +210,10 @@ public struct CFG {
     var nodeToPhis = [Node: Set<Variable>]()
     var nodeToPhisOrdered = [Node: [Variable]]()
     for v in orderedVars {
-      let vNodes = varToNode[v]!
-      if vNodes.count == 1 {
+      if varToNode[v]!.count == 1 {
         continue
       }
-      let allFrontier = vNodes.map { nodeToFrontier[$0]! }.reduce(Set(), { $0.union($1) })
+      let allFrontier = varToDef[v]!.map { nodeToFrontier[$0]! }.reduce(Set(), { $0.union($1) })
       for frontierNode in allFrontier {
         if !nodeToPhis[frontierNode, default: []].contains(v) {
           nodeToPhis[frontierNode, default: []].insert(v)

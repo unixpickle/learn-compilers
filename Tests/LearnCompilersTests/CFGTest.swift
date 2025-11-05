@@ -271,6 +271,42 @@ import Testing
   checkPhi(cfg: cfg)
 }
 
+@Test func testCFGIntoSSANoPhiForArg() throws {
+  let code = """
+      fn main(x: int) -> int {
+        while? (x) {
+          main(x)
+        }
+      }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+  try cfg.insertPhiAndNumberVars()
+  checkSSA(cfg: cfg)
+  checkPhi(cfg: cfg)
+
+  for (_, code) in cfg.nodeCode {
+    for inst in code.instructions {
+      if case .phi = inst.op {
+        #expect(Bool(false), "unexpected phi function \(inst.op)")
+      }
+    }
+  }
+}
+
 @Test func testCFGIntoSSAWithMissingReturn() throws {
   let code = """
       fn main(x: int, y: str) -> str {

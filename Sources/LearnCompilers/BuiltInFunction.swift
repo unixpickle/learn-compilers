@@ -81,7 +81,7 @@ public enum BuiltInFunction: Hashable, Sendable {
   /// Reduce a function to a constant value or to one of its arguments.
   ///
   /// Returns nil if no such reduction is available.
-  public static func reduceConstants(fn: Function, args: [CFG.Argument]) -> CFG.Argument? {
+  public static func reduce(fn: Function, args: [CFG.Argument]) -> CFG.Argument? {
     guard let builtIn = fn.builtIn else {
       return nil
     }
@@ -119,6 +119,9 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .eqInt:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
         return .constInt(x == y ? 1 : 0)
+      } else if args[0] == args[1] {
+        // Comparing a var to itself is always true (for now)
+        return .constInt(1)
       }
     case .notInt:
       if case .constInt(let x) = args[0] {
