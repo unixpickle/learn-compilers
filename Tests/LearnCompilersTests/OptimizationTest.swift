@@ -83,6 +83,43 @@ import Testing
   #expect(!containsPrint(cfg: optCFG), "optimized CFG should optimize away print")
 }
 
+@Test func testBasicOptimizationAssignmentReduction() throws {
+  let code = """
+    fn main(x: int, y: int) {
+      b: int = eq(add(x, 0), x)
+      unused: int = add(y, 1)
+      if? (not(b)) {
+        print(str(unused))
+      }
+      if? (unused) {
+        if? (not(b)) {
+          print(str(unused))
+        }
+      }
+    }
+    """
+
+  func containsUnused(cfg: CFG) -> Bool {
+    for (_, code) in cfg.nodeCode {
+      for inst in code.instructions {
+        for v in inst.op.defs {
+          if v.variable.name == "unused" {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  let naiveCFG = try codeToCFG(code, opt: .none)
+  verifyCFGInvariants(cfg: naiveCFG)
+  #expect(containsUnused(cfg: naiveCFG), "naive CFG shouldn't optimize away unused var")
+  let optCFG = try codeToCFG(code, opt: .basic)
+  verifyCFGInvariants(cfg: optCFG)
+  #expect(!containsUnused(cfg: optCFG), "optimized CFG should optimize away unused var")
+}
+
 @Test func testBasicOptimizationFibonacci() throws {
   for code in FibonacciImplementations {
     let cfg = try codeToCFG(code, opt: .basic)
