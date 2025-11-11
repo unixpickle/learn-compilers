@@ -132,6 +132,10 @@ enum OptLevel {
 }
 
 internal func codeToCFG(_ code: String, opt: OptLevel) throws -> CFG {
+  try codeToCFGs(code, opt: opt, count: 1)[0]
+}
+
+internal func codeToCFGs(_ code: String, opt: OptLevel, count: Int) throws -> [CFG] {
   let match = try Parser.parse(code)
   var ast = AST(match: match)
   #expect(ast.codeString == code)
@@ -146,11 +150,13 @@ internal func codeToCFG(_ code: String, opt: OptLevel) throws -> CFG {
     throw errors.first!
   }
 
-  var cfg = CFG(ast: ast)
-  try cfg.insertPhiAndNumberVars(allowMissingReturn: opt != .none)
-  if opt != .none {
-    cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
-    try cfg.checkMissingReturns()
+  return try (0..<count).map { _ in
+    var cfg = CFG(ast: ast)
+    try cfg.insertPhiAndNumberVars(allowMissingReturn: opt != .none)
+    if opt != .none {
+      cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+      try cfg.checkMissingReturns()
+    }
+    return cfg
   }
-  return cfg
 }

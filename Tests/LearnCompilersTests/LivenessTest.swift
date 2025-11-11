@@ -3,6 +3,8 @@ import Testing
 
 @testable import LearnCompilers
 
+private typealias G = Liveness.VariableGraph
+
 @Test func testLivenessSimple() throws {
   var cfg = CFG()
 
@@ -89,19 +91,23 @@ import Testing
   #expect(liveness.liveOut(node: finalNode) == [])
 
   #expect(
-    liveness.interferenceFor(node: entrypoint) == .init(edges: [(v1, v2), (v1, v4), (v2, v4)])
+    liveness.interferenceFor(node: entrypoint).neighbors
+      == G.init(edges: [(v1, v2), (v1, v4), (v2, v4)]).neighbors
   )
   #expect(
-    liveness.interferenceFor(node: branch1) == .init(edges: [(v3v1, v4), (v1, v4)])
+    liveness.interferenceFor(node: branch1).neighbors
+      == G.init(edges: [(v3v1, v4), (v1, v4)]).neighbors
   )
   #expect(
-    liveness.interferenceFor(node: branch2) == .init(edges: [(v3v2, v4), (v2, v4)])
+    liveness.interferenceFor(node: branch2).neighbors
+      == G.init(edges: [(v3v2, v4), (v2, v4)]).neighbors
   )
   #expect(
-    liveness.interferenceFor(node: afterIf) == .init(edges: [(v3v3, v4), (v3v1, v4), (v3v2, v4)])
+    liveness.interferenceFor(node: afterIf).neighbors
+      == G.init(edges: [(v3v3, v4), (v3v1, v4), (v3v2, v4)]).neighbors
   )
   #expect(
-    liveness.interferenceFor(node: finalNode) == .init()
+    liveness.interferenceFor(node: finalNode).neighbors == G.init().neighbors
   )
 }
 
@@ -148,8 +154,8 @@ import Testing
   #expect(liveness.liveOut(node: loopBody) == Set([v2]))
   #expect(liveness.liveOnEdge[.init(from: loopBody, to: loopBody)] == Set([v2]))
 
-  #expect(liveness.interferenceFor(node: entrypoint) == .init())
-  #expect(liveness.interferenceFor(node: loopBody) == .init())
+  #expect(liveness.interferenceFor(node: entrypoint).neighbors == [:])
+  #expect(liveness.interferenceFor(node: loopBody).neighbors == [:])
 }
 
 @Test func testLivenessPhiMultiple() throws {
@@ -240,12 +246,20 @@ import Testing
   #expect(liveness.liveIn(node: joinPoint) == Set([v1, v3, v4, v5]))
   #expect(liveness.liveOut(node: joinPoint) == [])
 
-  #expect(liveness.interferenceFor(node: entrypoint) == .init(edges: [(v1, v2)]))
-  #expect(liveness.interferenceFor(node: branch1) == .init(edges: [(v1, v3), (v3, v4), (v1, v2)]))
-  #expect(liveness.interferenceFor(node: branch2) == .init(edges: [(v1, v5), (v1, v2)]))
   #expect(
-    liveness.interferenceFor(node: joinPoint)
-      == .init(edges: [(v6, v7), (v8, v6), (v1, v5), (v3, v4)])
+    liveness.interferenceFor(node: entrypoint).neighbors == G.init(edges: [(v1, v2)]).neighbors
+  )
+  #expect(
+    liveness.interferenceFor(node: branch1).neighbors
+      == G.init(edges: [(v1, v3), (v3, v4), (v1, v2)]).neighbors
+  )
+  #expect(
+    liveness.interferenceFor(node: branch2).neighbors
+      == G.init(edges: [(v1, v5), (v1, v2)]).neighbors
+  )
+  #expect(
+    liveness.interferenceFor(node: joinPoint).neighbors
+      == G.init(edges: [(v6, v7), (v8, v6), (v1, v5), (v3, v4)]).neighbors
   )
 
   cfg.nodeCode[joinPoint] = CFG.NodeCode(instructions: [
@@ -266,17 +280,22 @@ import Testing
   #expect(liveness.liveIn(node: joinPoint) == Set([v1, v3, v4, v5]))
   #expect(liveness.liveOut(node: joinPoint) == [])
 
-  #expect(liveness.interferenceFor(node: entrypoint) == .init(edges: [(v1, v2)]))
   #expect(
-    liveness.interferenceFor(node: branch1)
-      == .init(edges: [(v1, v3), (v1, v4), (v3, v4), (v1, v2)])
+    liveness.interferenceFor(node: entrypoint).neighbors == G.init(edges: [(v1, v2)]).neighbors
   )
-  #expect(liveness.interferenceFor(node: branch2) == .init(edges: [(v1, v5), (v1, v2)]))
   #expect(
-    liveness.interferenceFor(node: joinPoint)
-      == .init(edges: [
+    liveness.interferenceFor(node: branch1).neighbors
+      == G.init(edges: [(v1, v3), (v1, v4), (v3, v4), (v1, v2)]).neighbors
+  )
+  #expect(
+    liveness.interferenceFor(node: branch2).neighbors
+      == G.init(edges: [(v1, v5), (v1, v2)]).neighbors
+  )
+  #expect(
+    liveness.interferenceFor(node: joinPoint).neighbors
+      == G.init(edges: [
         (v6, v7), (v6, v1), (v7, v1), (v8, v6), (v3, v4), (v3, v1), (v5, v1), (v4, v1),
-      ])
+      ]).neighbors
   )
 
   // Try separate phi and continuation
@@ -300,10 +319,13 @@ import Testing
   #expect(liveness.liveOut(node: finalPoint) == [])
 
   #expect(
-    liveness.interferenceFor(node: joinPoint)
-      == .init(edges: [
+    liveness.interferenceFor(node: joinPoint).neighbors
+      == G.init(edges: [
         (v6, v1), (v7, v1), (v7, v6), (v5, v1), (v4, v1), (v3, v1), (v3, v4),
-      ])
+      ]).neighbors
   )
-  #expect(liveness.interferenceFor(node: finalPoint) == .init(edges: [(v8, v6), (v6, v1)]))
+  #expect(
+    liveness.interferenceFor(node: finalPoint).neighbors
+      == G.init(edges: [(v8, v6), (v6, v1)]).neighbors
+  )
 }

@@ -3,6 +3,7 @@ public struct Liveness {
   public struct VariableGraph: Hashable {
     public typealias V = CFG.SSAVariable
     public var nodes = Set<V>()
+    public var nodesOrdered = [V]()
     public var neighbors = [V: Set<V>]()
 
     public init() {}
@@ -14,12 +15,14 @@ public struct Liveness {
     }
 
     public mutating func insert(node: V) {
-      nodes.insert(node)
+      if nodes.insert(node).inserted {
+        nodesOrdered.append(node)
+      }
     }
 
     public mutating func insertEdge(_ from: V, _ to: V) {
-      nodes.insert(from)
-      nodes.insert(to)
+      insert(node: from)
+      insert(node: to)
       if from == to {
         return
       }

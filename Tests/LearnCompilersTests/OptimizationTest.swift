@@ -78,9 +78,12 @@ import Testing
   let naiveCFG = try codeToCFG(code, opt: .none)
   verifyCFGInvariants(cfg: naiveCFG)
   #expect(containsPrint(cfg: naiveCFG), "naive CFG shouldn't optimize away print")
-  let optCFG = try codeToCFG(code, opt: .basic)
+  let optCFGs = try codeToCFGs(code, opt: .basic, count: 2)
+  let optCFG = optCFGs[0]
   verifyCFGInvariants(cfg: optCFG)
   #expect(!containsPrint(cfg: optCFG), "optimized CFG should optimize away print")
+
+  checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
 }
 
 @Test func testBasicOptimizationAssignmentReduction() throws {
@@ -115,23 +118,30 @@ import Testing
   let naiveCFG = try codeToCFG(code, opt: .none)
   verifyCFGInvariants(cfg: naiveCFG)
   #expect(containsUnused(cfg: naiveCFG), "naive CFG shouldn't optimize away unused var")
-  let optCFG = try codeToCFG(code, opt: .basic)
+  let optCFGs = try codeToCFGs(code, opt: .basic, count: 2)
+  let optCFG = optCFGs[0]
   verifyCFGInvariants(cfg: optCFG)
   #expect(!containsUnused(cfg: optCFG), "optimized CFG should optimize away unused var")
+
+  checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
 }
 
 @Test func testBasicOptimizationFibonacci() throws {
   for code in FibonacciImplementations {
-    let cfg = try codeToCFG(code, opt: .basic)
+    let cfgs = try codeToCFGs(code, opt: .basic, count: 2)
+    let cfg = cfgs[0]
     verifyCFGInvariants(cfg: cfg)
     try checkFibonacciImplementation(cfg: cfg)
+    checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
   }
 }
 
 @Test func testBasicOptimizationTableFormat() throws {
-  let cfg = try codeToCFG(TableFormatImplementation, opt: .basic)
+  let cfgs = try codeToCFGs(TableFormatImplementation, opt: .basic, count: 2)
+  let cfg = cfgs[0]
   verifyCFGInvariants(cfg: cfg)
   try checkTableFormatImplementation(cfg: cfg)
+  checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
 }
 
 func verifyCFGInvariants(cfg: CFG) {

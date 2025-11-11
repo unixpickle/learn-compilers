@@ -64,6 +64,10 @@ import Testing
   }
 
   let cfg = CFG(ast: ast)
+
+  let cfg2 = CFG(ast: ast)
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
+
   let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
   let mainEntrypoint = cfg.functions[mainFunction]!
   let mainRetVar = CFG.SSAVariable(variable: cfg.returnVariableMap()[mainFunction]!)
@@ -269,6 +273,10 @@ import Testing
   try cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  try cfg2.insertPhiAndNumberVars()
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
 @Test func testCFGIntoSSANoPhiForArg() throws {
@@ -297,6 +305,10 @@ import Testing
   try cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  try cfg2.insertPhiAndNumberVars()
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 
   for (_, code) in cfg.nodeCode {
     for inst in code.instructions {
@@ -337,6 +349,10 @@ import Testing
   }
   try cfg.insertPhiAndNumberVars(allowMissingReturn: true)
   checkSSA(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  try cfg2.insertPhiAndNumberVars(allowMissingReturn: true)
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
 @Test func testCFGIntoSSASelfAssign() throws {
@@ -364,6 +380,10 @@ import Testing
   try cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  try cfg2.insertPhiAndNumberVars()
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
 @Test func testCFGIntoSSALoopWithoutAssignment() throws {
@@ -395,6 +415,10 @@ import Testing
   try cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  try cfg2.insertPhiAndNumberVars()
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
 /// Check SSA condition that variable versions are only assigned once.
@@ -458,6 +482,73 @@ func checkPhi(cfg: CFG) {
           Set(branches.keys) == Set(preds),
           "phi function is missing or has extra source(s)"
         )
+      }
+    }
+  }
+}
+
+struct HashableVariable: Hashable {
+  let position: Position
+  let name: String
+}
+
+func checkCFGEqual(cfg1: CFG, cfg2: CFG) {
+  #expect(cfg1.functions.count == cfg2.functions.count)
+  #expect(cfg1.nodes.count == cfg2.nodes.count)
+  if cfg1.nodes.count != cfg2.nodes.count {
+    return
+  }
+
+  for (fn, node1) in cfg1.functions {
+    let node2 = cfg2.functions[fn]!
+    #expect(node1.id == node2.id)
+  }
+
+  func computeVarMapping(cfg: CFG) -> [HashableVariable: Variable] {
+    var result = [HashableVariable: Variable]()
+    for code in cfg.nodeCode.values {
+      for inst in code.instructions {
+        for v in inst.op.uses + inst.op.defs {
+          result[.init(position: v.variable.declarationPosition, name: v.variable.name)] =
+            v.variable
+        }
+      }
+    }
+    return result
+  }
+
+  let cfg1Mapping = computeVarMapping(cfg: cfg1)
+
+  let idToNode1 = Dictionary(uniqueKeysWithValues: cfg1.nodes.map { ($0.id, $0) })
+  let idToNode2 = Dictionary(uniqueKeysWithValues: cfg2.nodes.map { ($0.id, $0) })
+
+  for (id, node1) in idToNode1 {
+    let node2 = idToNode2[id]!
+    let code1 = cfg1.nodeCode[node1]!
+    let code2 = cfg2.nodeCode[node2]!
+    #expect(code1.instructions.count == code2.instructions.count)
+    for (i, inst1) in code1.instructions.enumerated() {
+      var inst2 = code2.instructions[i]
+      for v in inst2.op.defs + inst2.op.uses {
+        let v1 = cfg1Mapping[
+          .init(position: v.variable.declarationPosition, name: v.variable.name)
+        ]!
+        assert(Set((inst1.op.defs + inst1.op.uses).map { $0.variable }).contains(v1))
+        inst2.op = inst2.op.replacing(
+          v, with: CFG.SSAVariable.init(variable: v1, version: v.version)
+        )
+      }
+
+      if case .phi(let target1, let sources1) = inst1.op,
+        case .phi(let target2, let sources2) = inst2.op
+      {
+        #expect(target1 == target2)
+        #expect(
+          Dictionary(uniqueKeysWithValues: sources1.map { (key, value) in (key.id, value) })
+            == Dictionary(uniqueKeysWithValues: sources2.map { (key, value) in (key.id, value) })
+        )
+      } else {
+        #expect(inst1 == inst2)
       }
     }
   }

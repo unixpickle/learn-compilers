@@ -19,7 +19,7 @@ private func colorGreedy(
   affinity: Liveness.VariableGraph
 ) -> [CFG.SSAVariable: Int] {
   var result = [CFG.SSAVariable: Int]()
-  for v in graph.nodes {
+  for v in graph.nodesOrdered {
     let notAllowed = Set(graph.neighbors[v, default: []].compactMap { result[$0] })
     var color = 0
     while notAllowed.contains(color) {
