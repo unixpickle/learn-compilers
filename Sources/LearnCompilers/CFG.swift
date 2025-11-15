@@ -14,6 +14,14 @@ public struct CFG {
     case constStr(String)
     case variable(SSAVariable)
 
+    public var dataType: Variable.DataType {
+      switch self {
+      case .constInt: .integer
+      case .constStr: .string
+      case .variable(let v): v.variable.dataType
+      }
+    }
+
     internal var variables: [SSAVariable] {
       switch self {
       case .constInt(_): []
