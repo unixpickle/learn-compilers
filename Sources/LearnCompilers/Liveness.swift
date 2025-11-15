@@ -29,6 +29,17 @@ public struct Liveness {
       neighbors[from, default: []].insert(to)
       neighbors[to, default: []].insert(from)
     }
+
+    public mutating func insert(graph: VariableGraph) {
+      for n in graph.nodesOrdered {
+        insert(node: n)
+      }
+      for v in graph.nodesOrdered {
+        for v1 in graph.neighbors[v, default: []] {
+          insertEdge(v, v1)
+        }
+      }
+    }
   }
 
   public struct Edge: Hashable {
