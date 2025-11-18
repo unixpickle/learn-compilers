@@ -1,35 +1,41 @@
 public enum BuiltInFunction: Hashable, Sendable {
   case add
   case sub
-  case concat
-  case str
+  case mul
+  case div
+  case mod
   case notInt
-  case notStr
   case eqInt
-  case eqStr
   case lt
   case gt
   case len
   case or
   case and
-  case print
+  case putc
+  case strAlloc
+  case strFree
+  case strGet
+  case strSet
 
   public var name: String {
     switch self {
     case .add: "add"
     case .sub: "sub"
-    case .concat: "concat"
-    case .str: "str"
+    case .mul: "mul"
+    case .div: "div"
+    case .mod: "mod"
     case .notInt: "not"
-    case .notStr: "not"
     case .eqInt: "eq"
-    case .eqStr: "eq"
     case .lt: "lt"
     case .gt: "gt"
     case .len: "len"
     case .or: "or"
     case .and: "and"
-    case .print: "print"
+    case .putc: "putc"
+    case .strAlloc: "str_alloc"
+    case .strFree: "str_free"
+    case .strGet: "str_get"
+    case .strSet: "str_set"
     }
   }
 
@@ -37,18 +43,21 @@ public enum BuiltInFunction: Hashable, Sendable {
     switch self {
     case .add: .init(args: [.integer, .integer], ret: .integer)
     case .sub: .init(args: [.integer, .integer], ret: .integer)
-    case .concat: .init(args: [.string, .string], ret: .string)
-    case .str: .init(args: [.integer], ret: .string)
+    case .mul: .init(args: [.integer, .integer], ret: .integer)
+    case .div: .init(args: [.integer, .integer], ret: .integer)
+    case .mod: .init(args: [.integer, .integer], ret: .integer)
     case .notInt: .init(args: [.integer], ret: .integer)
-    case .notStr: .init(args: [.string], ret: .integer)
     case .eqInt: .init(args: [.integer, .integer], ret: .integer)
-    case .eqStr: .init(args: [.string, .string], ret: .string)
     case .lt: .init(args: [.integer, .integer], ret: .integer)
     case .gt: .init(args: [.integer, .integer], ret: .integer)
     case .len: .init(args: [.string], ret: .integer)
     case .or: .init(args: [.integer, .integer], ret: .integer)
     case .and: .init(args: [.integer, .integer], ret: .integer)
-    case .print: .init(args: [.string], ret: nil)
+    case .putc: .init(args: [.integer], ret: nil)
+    case .strAlloc: .init(args: [.integer], ret: .string)
+    case .strFree: .init(args: [.string], ret: nil)
+    case .strGet: .init(args: [.string, .integer], ret: .integer)
+    case .strSet: .init(args: [.string, .integer, .integer], ret: nil)
     }
   }
 
@@ -56,18 +65,21 @@ public enum BuiltInFunction: Hashable, Sendable {
     [
       BuiltInFunction.add,
       .sub,
-      .concat,
-      .str,
+      .mul,
+      .div,
+      .mod,
       .notInt,
-      .notStr,
       .eqInt,
-      .eqStr,
       .lt,
       .gt,
       .len,
       .or,
       .and,
-      .print,
+      .putc,
+      .strAlloc,
+      .strFree,
+      .strGet,
+      .strSet,
     ].map {
       .init(
         declarationPosition: Position(fileID: "<built-in>"),

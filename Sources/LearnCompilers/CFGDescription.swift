@@ -5,7 +5,7 @@ extension CFG: CustomStringConvertible {
     for (fn, node) in functions {
       fnDescs.append("  fn \(fn.name) {\n" + describeFunction(node: node, indent: "    ") + "\n  }")
     }
-    return "CFG(\n\(fnDescs.joined())\n)"
+    return "CFG(\n\(fnDescs.joined(separator: "\n"))\n)"
   }
 
   private func describeFunction(node: Node, indent: String) -> String {

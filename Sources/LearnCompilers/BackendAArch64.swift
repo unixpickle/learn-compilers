@@ -1,18 +1,20 @@
 public struct BackendAArch64: Backend {
 
-  public enum Register: CustomStringConvertible, Equatable {
+  public enum Register: CustomStringConvertible, Equatable, Sendable {
     case x(Int)
+    case w(Int)
     case sp
 
     public var description: String {
       switch self {
       case .x(let x): "x\(x)"
+      case .w(let w): "w\(w)"
       case .sp: "sp"
       }
     }
   }
 
-  public enum RegOrInt: CustomStringConvertible, Equatable {
+  public enum RegOrInt: CustomStringConvertible, Equatable, Sendable {
     case reg(Register)
     case int(Int64)
 
@@ -41,7 +43,7 @@ public struct BackendAArch64: Backend {
     }
   }
 
-  public enum CodeLine {
+  public enum CodeLine: Sendable {
     case globl(String)
     case alignPow2(Int)
     case symbol(String)
@@ -49,7 +51,9 @@ public struct BackendAArch64: Backend {
     case sub(Register, Register, RegOrInt)
     case add(Register, Register, RegOrInt)
     case ldr(Register, Addr)
+    case ldrb(Register, Addr)
     case str(Register, Addr)
+    case strb(Register, Addr)
     case ldp(Register, Register, Addr)
     case stp(Register, Register, Addr)
     case cmpZero(Register)
@@ -74,8 +78,12 @@ public struct BackendAArch64: Backend {
         return "  add \(target), x\(a), #\(b)"
       case .ldr(let target, let source):
         return "  ldr \(target), \(addrStr(source))"
+      case .ldrb(let target, let source):
+        return "  ldrb \(target), \(addrStr(source))"
       case .str(let source, let target):
         return "  str \(source), \(addrStr(target))"
+      case .strb(let source, let target):
+        return "  strb \(source), \(addrStr(target))"
       case .ldp(let t1, let t2, let source):
         return "  ldp \(t1), \(t2), \(addrStr(source))"
       case .stp(let s1, let s2, let target):
@@ -115,7 +123,48 @@ public struct BackendAArch64: Backend {
 
   public let graphColorAlgorithm = GraphColorAlgorithm.greedy
 
-  // TODO: write built-in functions for string operations and printing.
+  public static let allocStrCode: [CodeLine] = [
+    .globl("_alloc_str"),
+    .alignPow2(2),
+    .symbol("_alloc_str"),
+    // Stack frame
+    .sub(.sp, .sp, .int(Int64(32))),
+    .stp(.x(29), .x(30), (.sp, 16)),
+    .add(.x(29), .sp, .int(Int64(16))),
+    // Backup callee-saved registers
+    .stp(.x(19), .x(20), (.sp, 0)),
+    // Allocate buffer and store length into it
+    .mov(.x(19), .reg(.x(0))),
+    .add(.x(0), .x(19), .int(8)),
+    .bl("_malloc"),
+    .str(.x(19), (Register.x(0), 0)),
+    // Restore callee-saved registers
+    .ldp(.x(19), .x(20), (.sp, 0)),
+    // Exit stack frame
+    .ldp(.x(29), .x(30), (.sp, 16)),
+    .add(.sp, .sp, .int(Int64(32))),
+    .ret,
+  ]
+
+  public static let strGetCode: [CodeLine] = [
+    .globl("_str_get"),
+    .alignPow2(2),
+    .symbol("_str_get"),
+    .add(.x(0), .x(0), .reg(.x(1))),
+    .ldrb(.w(1), (.x(0), 8)),
+    .mov(.x(0), .int(0)),
+    .mov(.w(0), .reg(.w(1))),
+    .ret,
+  ]
+
+  public static let strSetCode: [CodeLine] = [
+    .globl("_str_set"),
+    .alignPow2(2),
+    .symbol("_str_set"),
+    .add(.x(0), .x(0), .reg(.x(1))),
+    .strb(.w(2), (.x(0), 8)),
+    .ret,
+  ]
 
   /// Compile the graph as AArch64 assembly code.
   public func compileAssembly(cfg: CFG) throws -> String {
@@ -271,10 +320,10 @@ public struct BackendAArch64: Backend {
       return true
     }
     switch builtIn {
-    case .concat: return true
-    case .str: return true
-    case .eqStr: return true
-    case .print: return true
+    case .strAlloc: return true
+    case .strFree: return true
+    case .strGet: return true
+    case .strSet: return true
     default: return false
     }
   }
@@ -382,12 +431,16 @@ public struct BackendAArch64: Backend {
       case .integer:
         return insts + [.cmpZero(reg)]
       case .string:
-        return insts + [.ldr(.x(8), (.x(0), 8)), .cmpZero(.x(8))]
+        return insts + [.ldr(.x(8), (.x(0), 0)), .cmpZero(.x(8))]
       }
     case .call(let fn, let args):
       if let builtIn = fn.builtIn {
-        if case .print = builtIn {
-          return encodeFunctionCall(frame: frame, symbol: "_print", args: args)
+        if case .putc = builtIn {
+          return encodeFunctionCall(frame: frame, symbol: "_putchar", args: args)
+        } else if case .strFree = builtIn {
+          return encodeFunctionCall(frame: frame, symbol: "_free", args: args)
+        } else if case .strSet = builtIn {
+          return encodeFunctionCall(frame: frame, symbol: "_str_set", args: args)
         }
         return []
       }

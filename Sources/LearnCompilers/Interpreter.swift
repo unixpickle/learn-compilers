@@ -1,7 +1,34 @@
 open class Interpreter {
+  public class MutableString {
+    public var data: [UInt8]
+    public var count: Int { data.count }
+    public var isEmpty: Bool { data.isEmpty }
+
+    public init(count: Int) {
+      self.data = [UInt8](repeating: 0, count: count)
+    }
+
+    public init(_ data: [UInt8]) {
+      self.data = data
+    }
+
+    public init(_ str: String) {
+      self.data = Array(str.utf8)
+    }
+
+    public subscript(_ idx: Int) -> UInt8 {
+      get {
+        data[idx]
+      }
+      set {
+        data[idx] = newValue
+      }
+    }
+  }
+
   public enum VarValue {
     case integer(Int64)
-    case string(String)
+    case string(MutableString)
 
     public var dataType: Variable.DataType {
       switch self {
@@ -18,7 +45,7 @@ open class Interpreter {
       }
     }
 
-    public var string: String? {
+    public var string: MutableString? {
       if case .string(let x) = self {
         x
       } else {
@@ -97,7 +124,7 @@ open class Interpreter {
       case .constInt(let x):
         .integer(x)
       case .constStr(let x):
-        .string(x)
+        .string(MutableString(x))
       case .variable(let v):
         state.vars[v]!
       }
@@ -242,18 +269,16 @@ open class Interpreter {
       return .integer(args[0].integer! + args[1].integer!)
     case .sub:
       return .integer(args[0].integer! - args[1].integer!)
-    case .concat:
-      return .string(args[0].string! + args[1].string!)
-    case .str:
-      return .string("\(args[0].integer!)")
+    case .mul:
+      return .integer(args[0].integer! * args[1].integer!)
+    case .div:
+      return .integer(args[0].integer! / args[1].integer!)
+    case .mod:
+      return .integer(args[0].integer! % args[1].integer!)
     case .notInt:
       return .integer(args[0].integer! == 0 ? 1 : 0)
-    case .notStr:
-      return .integer(args[0].string!.isEmpty ? 1 : 0)
     case .eqInt:
       return .integer(args[0].integer! == args[1].integer! ? 1 : 0)
-    case .eqStr:
-      return .integer(args[0].string! == args[1].string! ? 1 : 0)
     case .lt:
       return .integer(args[0].integer! < args[1].integer! ? 1 : 0)
     case .gt:
@@ -264,8 +289,17 @@ open class Interpreter {
       return .integer(args[0].integer! | args[1].integer!)
     case .and:
       return .integer(args[0].integer! & args[1].integer!)
-    case .print:
-      print(args[0].string!)
+    case .putc:
+      print(Character(UnicodeScalar(UInt8(args[0].integer!))), terminator: "")
+      return nil
+    case .strAlloc:
+      return .string(.init(count: Int(args[0].integer!)))
+    case .strFree:
+      return nil
+    case .strGet:
+      return .integer(Int64(args[0].string![Int(args[1].integer!)]))
+    case .strSet:
+      args[0].string![Int(args[1].integer!)] = UInt8(args[2].integer!)
       return nil
     }
   }

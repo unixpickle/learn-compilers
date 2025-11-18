@@ -294,6 +294,23 @@ import Testing
       }
     }
     """,
+    """
+    fn eq(x: str, y: str) -> int {
+      x_len: int = len(x)
+      y_len: int = len(y)
+      if? (not(eq(x_len, y_len))) {
+        return!(0)
+      }
+      i: int = 0
+      while? (lt(i, x_len)) {
+        if? (not(eq(str_get(x, i), str_get(y, i)))) {
+          return!(0)
+        }
+        i = add(i, 1)
+      }
+      return!(1)
+    }
+    """,
   ]
 
   for code in badCode {

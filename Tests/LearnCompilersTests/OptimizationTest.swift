@@ -66,7 +66,7 @@ import Testing
     for (_, code) in cfg.nodeCode {
       for inst in code.instructions {
         if case .call(let fn, _) = inst.op {
-          if fn.builtIn == .print {
+          if fn.name == "print" {
             return true
           }
         }

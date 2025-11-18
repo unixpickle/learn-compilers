@@ -137,9 +137,12 @@ public struct ScopeTable {
     functions = [:]
   }
 
-  public mutating func addBuiltIns() {
-    for fn in BuiltInFunction.functions {
-      functions[fn.name, default: []].append(fn)
+  public mutating func addStandardLibrary() {
+    let table = StandardLibrary.table
+    for fns in table.functions.values {
+      for fn in fns {
+        functions[fn.name, default: []].append(fn)
+      }
     }
   }
 
@@ -470,7 +473,7 @@ extension ASTNode {
       switch expr {
       case .intLiteral: .integer
       case .identifier(let id, _): id.variable!.type
-      case .funcCall(let call, _): call.identifier.function!.signature.ret
+      case .funcCall(let call, _): call.identifier.function?.signature.ret
       }
     }
 

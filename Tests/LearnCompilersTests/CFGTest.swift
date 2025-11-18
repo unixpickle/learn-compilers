@@ -270,12 +270,12 @@ import Testing
   }
 
   var cfg = CFG(ast: ast)
-  try cfg.insertPhiAndNumberVars()
+  cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
-  try cfg2.insertPhiAndNumberVars()
+  cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
@@ -302,12 +302,12 @@ import Testing
   }
 
   var cfg = CFG(ast: ast)
-  try cfg.insertPhiAndNumberVars()
+  cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
-  try cfg2.insertPhiAndNumberVars()
+  cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 
   for (_, code) in cfg.nodeCode {
@@ -345,13 +345,14 @@ import Testing
 
   #expect(throws: SSAError.self) {
     var c1 = cfg
-    try c1.insertPhiAndNumberVars(allowMissingReturn: false)
+    c1.insertPhiAndNumberVars()
+    try c1.checkMissingReturns()
   }
-  try cfg.insertPhiAndNumberVars(allowMissingReturn: true)
+  cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
-  try cfg2.insertPhiAndNumberVars(allowMissingReturn: true)
+  cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
@@ -377,12 +378,12 @@ import Testing
 
   var cfg = CFG(ast: ast)
 
-  try cfg.insertPhiAndNumberVars()
+  cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
-  try cfg2.insertPhiAndNumberVars()
+  cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 
@@ -412,12 +413,79 @@ import Testing
 
   var cfg = CFG(ast: ast)
 
-  try cfg.insertPhiAndNumberVars()
+  cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
-  try cfg2.insertPhiAndNumberVars()
+  cfg2.insertPhiAndNumberVars()
+  checkCFGEqual(cfg1: cfg, cfg2: cfg2)
+}
+
+@Test func testCFGIntoSSADeclareAfterBranch() throws {
+  let code = """
+    fn eq(x: str, y: str) -> int {
+      x_len: int = len(x)
+      y_len: int = len(y)
+      if? (not(eq(x_len, y_len))) {
+        return!(0)
+      }
+      i: int = 0
+      while? (lt(i, x_len)) {
+        if? (not(eq(str_get(x, i), str_get(y, i)))) {
+          return!(0)
+        }
+        i = add(i, 1)
+      }
+      return!(1)
+    }
+
+    fn len(x: str) -> int {
+      return!(0)
+    }
+
+    fn str_get(x: str, y: int) -> int {
+      return!(0)
+    }
+
+    fn add(x: int, y: int) -> int {
+      return!(0)
+    }
+
+    fn not(x: int) -> int {
+      return!(0)
+    }
+
+    fn eq(x: int, y: int) -> int {
+      return!(0)
+    }
+
+    fn lt(x: int, y: int) -> int {
+      return!(0)
+    }
+    """
+
+  let match = try Parser.parse(code)
+  var ast = AST(match: match)
+  #expect(ast.codeString == code)
+
+  var table = ScopeTable()
+  var errors: [ASTDecorationError]
+  (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+
+  #expect(errors.isEmpty)
+  if !errors.isEmpty {
+    return
+  }
+
+  var cfg = CFG(ast: ast)
+
+  cfg.insertPhiAndNumberVars()
+  checkSSA(cfg: cfg)
+  checkPhi(cfg: cfg)
+
+  var cfg2 = CFG(ast: ast)
+  cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
 }
 

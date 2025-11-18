@@ -109,14 +109,14 @@ func checkTableFormatImplementation(cfg: CFG) throws {
     let interp = try Interpreter(
       cfg: cfg,
       entrypoint: mainFunction,
-      arguments: [.string("*")] + inputs.map { .string($0) }
+      arguments: [.string(.init("*"))] + inputs.map { .string(.init($0)) }
     )
     guard let returnVal = interp.run() else {
       #expect(Bool(false), "got nil return value")
       continue
     }
     if case .string(let x) = returnVal {
-      #expect(x == expected, "expected output = \(expected) but got \(x)")
+      #expect(x.data == Array(expected.utf8), "expected output = \(expected) but got \(x)")
     } else {
       #expect(
         Bool(false),
@@ -141,7 +141,7 @@ internal func codeToCFGs(_ code: String, opt: OptLevel, count: Int) throws -> [C
   #expect(ast.codeString == code)
 
   var table = ScopeTable()
-  table.addBuiltIns()
+  table.addStandardLibrary()
   var errors: [ASTDecorationError]
   (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
 
@@ -152,11 +152,12 @@ internal func codeToCFGs(_ code: String, opt: OptLevel, count: Int) throws -> [C
 
   return try (0..<count).map { _ in
     var cfg = CFG(ast: ast)
-    try cfg.insertPhiAndNumberVars(allowMissingReturn: opt != .none)
+    cfg.add(ast: StandardLibrary.ast)
+    cfg.insertPhiAndNumberVars()
     if opt != .none {
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
-      try cfg.checkMissingReturns()
     }
+    try cfg.checkMissingReturns()
     return cfg
   }
 }

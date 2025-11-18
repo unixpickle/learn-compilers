@@ -11,14 +11,14 @@ public struct CFG {
 
   public enum Argument: Hashable {
     case constInt(Int64)
-    case constStr(String)
+    case constStr([UInt8])
     case variable(SSAVariable)
 
     public var dataType: Variable.DataType {
       switch self {
       case .constInt: .integer
       case .constStr: .string
-      case .variable(let v): v.variable.dataType
+      case .variable(let v): v.variable.type
       }
     }
 
@@ -183,13 +183,13 @@ public struct CFG {
   ///
   /// This uses semi-pruned SSA, only inserting phi functions for variables
   /// that are used in more than one block.
-  ///
-  /// After the call, some phi functions may still be redundant due to creating
-  /// dead variables. Further optimization must be done to prune these.
-  public mutating func insertPhiAndNumberVars(allowMissingReturn: Bool = true) throws {
+  public mutating func insertPhiAndNumberVars() {
     let domTree = DominatorTree(cfg: self)
     insertPhi(domTree: domTree)
-    try numberVariables(domTree: domTree, allowMissingReturn: allowMissingReturn)
+    numberVariables(domTree: domTree)
+
+    // This is necessary to prune partially-populated phi functions.
+    eliminateUnusedVariables(phiOnly: true)
   }
 
   private mutating func insertPhi(domTree: DominatorTree) {
@@ -245,7 +245,7 @@ public struct CFG {
     }
   }
 
-  private mutating func numberVariables(domTree: DominatorTree, allowMissingReturn: Bool) throws {
+  private mutating func numberVariables(domTree: DominatorTree) {
     var queue: [(Node, [Variable: Int])] = domTree.roots.map { ($0, [:]) }
 
     var versionCounter = [Variable: Int]()
@@ -272,9 +272,6 @@ public struct CFG {
           for v in inst.op.uses {
             guard let curV = curVersions[v.variable] else {
               if allReturnVars.contains(v.variable) {
-                if !allowMissingReturn {
-                  throw SSAError.missingReturn(v.variable.declarationPosition)
-                }
                 continue
               } else {
                 fatalError("variable \(v.variable) used before assignment in instruction \(inst)")
@@ -305,14 +302,10 @@ public struct CFG {
         for (i, var inst) in code.instructions.enumerated() {
           if case .phi(let v, var branches) = inst.op {
             guard let curV = curVersions[v.variable] else {
-              if allReturnVars.contains(v.variable) {
-                if !allowMissingReturn {
-                  throw SSAError.missingReturn(v.variable.declarationPosition)
-                }
-                continue
-              } else {
-                fatalError("variable \(v.variable) used in phi before assignment")
-              }
+              // This may be a return that is truly missing, or a phi function that will
+              // be eliminated later because the variable isn't defined for every branch
+              // and therefore the phi must never be used.
+              continue
             }
             branches[node] = .variable(SSAVariable(variable: v.variable, version: curV))
             inst.op = .phi(v, branches)
@@ -329,19 +322,79 @@ public struct CFG {
     }
   }
 
-  /// Raise an error if any functions are missing returns.
+  /// Remove variable definitions that have no uses.
+  @discardableResult
+  public mutating func eliminateUnusedVariables(phiOnly: Bool = false) -> Bool {
+    var succeeded = false
+    var converged = false
+    while !converged {
+      converged = true
+
+      var usageCount = [SSAVariable: Int]()
+      for node in nodes {
+        for inst in nodeCode[node]!.instructions {
+          // Exclude phi's with itself as an argument
+          let defs = Set(inst.op.defs)
+          let uses = Set(inst.op.uses).subtracting(defs)
+
+          for use in uses {
+            usageCount[use, default: 0] += 1
+          }
+        }
+      }
+
+      for node in nodes {
+        var newCode = nodeCode[node]!
+        var i = 0
+        while i < newCode.instructions.count {
+          let inst = newCode.instructions[i]
+          if phiOnly {
+            if case .phi = inst.op {
+            } else {
+              // Do not drop the instruction because it's a phi.
+              i += 1
+              continue
+            }
+          }
+          let defs = inst.op.defs
+          if let def = defs.first, defs.count == 1, usageCount[def, default: 0] == 0 {
+            if case .callAndStore(_, let fn, let args) = inst.op {
+              // The function call might have side-effects that we want to keep.
+              newCode.instructions[i].op = .call(fn, args)
+              i += 1
+            } else {
+              newCode.instructions.remove(at: i)
+            }
+            converged = false
+          } else {
+            i += 1
+          }
+        }
+        nodeCode[node] = newCode
+      }
+      if !converged {
+        succeeded = true
+      }
+    }
+    return succeeded
+  }
+
+  /// Raise an error if any functions are missing returns, or crash if
+  /// other phi functions are missing branches (should never happen).
   ///
   /// This can happen late in the game because `insertPhiAndNumberVars()`
   /// doesn't check for this, to allow dead code elimination to remove the
   /// need for returns in some cases.
   public func checkMissingReturns() throws {
+    let retVars = Set(returnVariables())
+
     // This detects when NO branches return, i.e. a return var is never defined.
     let allDefs = Set(
       nodes.flatMap { node in
         nodeCode[node]!.instructions.flatMap { $0.op.defs.map { $0.variable } }
       }
     )
-    for retVar in returnVariables() {
+    for retVar in retVars {
       if !allDefs.contains(retVar) {
         throw SSAError.missingReturn(retVar.declarationPosition)
       }
@@ -351,11 +404,15 @@ public struct CFG {
     for node in nodes {
       let code = nodeCode[node]!
       for inst in code.instructions {
-        if case .phi(_, let branches) = inst.op {
+        if case .phi(let v, let branches) = inst.op {
           if Set(branches.keys) != Set(predecessors[node, default: []]) {
-            // The phi block takes its position from consumption of the variable,
-            // which is in turn exactly where the return type is declared.
-            throw SSAError.missingReturn(inst.position)
+            if retVars.contains(v.variable) {
+              // The phi block takes its position from consumption of the variable,
+              // which is in turn exactly where the return type is declared.
+              throw SSAError.missingReturn(inst.position)
+            } else {
+              fatalError("phi is missing an argument")
+            }
           }
         }
       }
