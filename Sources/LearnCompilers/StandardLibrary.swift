@@ -49,6 +49,11 @@ public final class StandardLibrary {
       }
     }
 
+    fn println(x: str) {
+      print(x)
+      putc(10)
+    }
+
     fn str(x: int) -> str {
       if? (lt(x, 0)) {
         pos_str: str = str(sub(0, x))

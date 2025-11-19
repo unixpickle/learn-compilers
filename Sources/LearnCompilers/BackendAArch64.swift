@@ -37,7 +37,7 @@ public struct BackendAArch64: Backend {
 
   public static func addrStr(_ addr: Addr) -> String {
     if addr.offset == 0 {
-      return "\(addr.base)"
+      return "[\(addr.base)]"
     } else {
       return "[\(addr.base), #\(addr.offset)]"
     }
@@ -113,7 +113,7 @@ public struct BackendAArch64: Backend {
       case .bl(let label):
         return "  bl \(label)"
       case .bEq(let label):
-        return "  bEq \(label)"
+        return "  b.eq \(label)"
       case .ret:
         return "  ret"
       }
@@ -129,22 +129,20 @@ public struct BackendAArch64: Backend {
     let backupRegisters: [Register]
 
     func stackVarAddress(_ idx: Int) -> Addr {
-      (.x(29), -(idx) * 8)
+      (.x(29), -(idx + 1) * 8)
     }
 
     func backupRegisterAddresses() -> [(Register, Addr)] {
       backupRegisters.enumerated().map { (i, reg) in
-        (reg, (.x(29), -(stackVarCount + i) * 8))
+        (reg, (.x(29), -(stackVarCount + i + 1) * 8))
       }
     }
   }
 
-  public let graphColorAlgorithm = GraphColorAlgorithm.greedy
-
   public static let allocStrCode: [CodeLine] = [
-    .globl("_alloc_str"),
+    .globl("_str_alloc"),
     .alignPow2(2),
-    .symbol("_alloc_str"),
+    .symbol("_str_alloc"),
     // Stack frame
     .sub(.sp, .sp, .int(Int64(32))),
     .stp(.x(29), .x(30), (.sp, 16)),
@@ -184,12 +182,21 @@ public struct BackendAArch64: Backend {
     .ret,
   ]
 
+  public let graphColorAlgorithm: GraphColorAlgorithm
+
+  public init(graphColorAlgorithm: GraphColorAlgorithm = .greedy) {
+    self.graphColorAlgorithm = graphColorAlgorithm
+  }
+
   /// Compile the graph as AArch64 assembly code.
   public func compileAssembly(cfg: CFG) throws -> String {
     let liveness = Liveness(cfg: cfg)
-    let results = cfg.functions.keys.flatMap {
+    var results = cfg.functions.keys.flatMap {
       compileFunction(cfg: cfg, liveness: liveness, fn: $0)
     }
+    results.append(contentsOf: Self.strSetCode)
+    results.append(contentsOf: Self.strGetCode)
+    results.append(contentsOf: Self.allocStrCode)
     return results.map { $0.code }.joined(separator: "\n")
   }
 
@@ -234,8 +241,7 @@ public struct BackendAArch64: Backend {
         tail.append(.bEq(falseSymbol))
         tail.append(.b(trueSymbol))
         tail.append(contentsOf: postTail)
-      case .none:
-        tail.append(.b("\(symbolName(frame: frame))_epilogue"))
+      case .none: ()
       }
       return header + bodyCode + tail
     }
@@ -449,7 +455,7 @@ public struct BackendAArch64: Backend {
       case .integer:
         return insts + [.cmp(reg, .int(0))]
       case .string:
-        return insts + [.ldr(.x(8), (.x(0), 0)), .cmp(.x(8), .int(0))]
+        return insts + [.ldr(.x(8), (reg, 0)), .cmp(.x(8), .int(0))]
       }
     case .call(let fn, let args):
       if let builtIn = fn.builtIn {
@@ -464,6 +470,7 @@ public struct BackendAArch64: Backend {
       }
       return encodeFunctionCall(frame: frame, symbol: symbolName(fn: fn), args: args)
     case .callAndStore(let target, let fn, let args):
+      var symbol: String
       switch fn.builtIn {
       case .add:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
@@ -506,21 +513,25 @@ public struct BackendAArch64: Backend {
           [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "eq")]
         }
       case .notInt:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .int(0)), .mov(dst, .int(0)), .cset(dst, "eq")]
-        }
+        let (instsIn, source) = argumentToRegister(
+          frame: frame, argument: args[0], defaultReg: .x(0)
+        )
+        let (instsOut, dst) = writableVariableRegister(frame: frame, target: target)
+        return instsIn + [.cmp(source, .int(0)), .mov(dst, .int(0)), .cset(dst, "eq")] + instsOut
       case .len:
-        let (insts, reg) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(8))
-        return insts + [.ldr(.x(0), (reg, 0))]
+        let (instsIn, reg) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(8))
+        let (instsOut, outReg) = writableVariableRegister(frame: frame, target: target)
+        return instsIn + [.ldr(outReg, (reg, 0))] + instsOut
       case .strAlloc:
-        return encodeFunctionCall(frame: frame, symbol: "_str_alloc", args: args)
+        symbol = "_str_alloc"
       case .strGet:
-        return encodeFunctionCall(frame: frame, symbol: "_str_get", args: args)
+        symbol = "_str_get"
       case .strFree, .strSet, .putc:
         fatalError("cannot assign return of call")
-      case .none: ()
+      case .none:
+        symbol = symbolName(fn: fn)
       }
-      let callCode = encodeFunctionCall(frame: frame, symbol: symbolName(fn: fn), args: args)
+      let callCode = encodeFunctionCall(frame: frame, symbol: symbol, args: args)
       let finalCodeLines = registerToVariable(frame: frame, target: target, source: .x(0))
       return callCode + finalCodeLines
     case .returnValue(let arg):
@@ -540,9 +551,9 @@ public struct BackendAArch64: Backend {
     builder: (Register, Register, Register) -> [CodeLine]
   ) -> [CodeLine] {
     let (inst1, r1) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
-    let (inst2, r2) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(1))
-    let (inst3, sumOut) = writableVariableRegister(frame: frame, target: target)
-    return inst1 + inst2 + builder(sumOut, r1, r2) + inst3
+    let (inst2, r2) = argumentToRegister(frame: frame, argument: args[1], defaultReg: .x(1))
+    let (inst3, regOut) = writableVariableRegister(frame: frame, target: target)
+    return inst1 + inst2 + builder(regOut, r1, r2) + inst3
   }
 
   internal func encodeFunctionCall(
@@ -604,8 +615,8 @@ public struct BackendAArch64: Backend {
     if !phiMoves.isEmpty {
       result.append(.sub(.sp, .sp, .int(Int64(phiMoves.count * 8))))
       for i in stride(from: 0, to: phiMoves.count, by: 2) {
-        let (source1, _) = phiMoves[i]
-        let (source2, _) = phiMoves[i + 1]
+        let (_, source1) = phiMoves[i]
+        let (_, source2) = phiMoves[i + 1]
 
         let (code1, arg1) = variableToRegister(frame: frame, placement: source1, defaultReg: .x(0))
         let (code2, arg2) = variableToRegister(frame: frame, placement: source2, defaultReg: .x(1))
@@ -615,8 +626,8 @@ public struct BackendAArch64: Backend {
         result.append(CodeLine.stp(arg1, arg2, (.sp, i * 8)))
       }
       for i in stride(from: 0, to: phiMoves.count, by: 2) {
-        let (_, target1) = phiMoves[i]
-        let (_, target2) = phiMoves[i + 1]
+        let (target1, _) = phiMoves[i]
+        let (target2, _) = phiMoves[i + 1]
 
         let (writeback1, reg1) = writableVariableRegister(
           frame: frame, placement: target1, defaultReg: .x(0)

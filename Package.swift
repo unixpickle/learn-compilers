@@ -12,7 +12,10 @@ let package = Package(
   products: [
     .library(
       name: "LearnCompilers",
-      targets: ["LearnCompilers"])
+      targets: ["LearnCompilers"]),
+    .executable(
+      name: "Compile",
+      targets: ["Compile"]),
   ],
   dependencies: [
     // Add the local dependency
@@ -25,6 +28,10 @@ let package = Package(
         // Make LearnCompilers depend on LearnParsers
         .product(name: "LearnParsers", package: "learn-parsers")
       ]
+    ),
+    .executableTarget(
+      name: "Compile",
+      dependencies: ["LearnCompilers"]
     ),
     .testTarget(
       name: "LearnCompilersTests",
