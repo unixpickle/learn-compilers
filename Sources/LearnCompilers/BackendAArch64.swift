@@ -50,13 +50,19 @@ public struct BackendAArch64: Backend {
     case mov(Register, RegOrInt)
     case sub(Register, Register, RegOrInt)
     case add(Register, Register, RegOrInt)
+    case and(Register, Register, RegOrInt)
+    case orr(Register, Register, RegOrInt)
+    case mul(Register, Register, RegOrInt)
+    case sdiv(Register, Register, RegOrInt)
+    case msub(Register, Register, Register, Register)
     case ldr(Register, Addr)
     case ldrb(Register, Addr)
     case str(Register, Addr)
     case strb(Register, Addr)
     case ldp(Register, Register, Addr)
     case stp(Register, Register, Addr)
-    case cmpZero(Register)
+    case cmp(Register, RegOrInt)
+    case cset(Register, String)
     case b(String)
     case bl(String)
     case bEq(String)
@@ -73,9 +79,19 @@ public struct BackendAArch64: Backend {
       case .mov(let target, let source):
         return "  mov \(target), \(source)"
       case .sub(let target, let a, let b):
-        return "  sub \(target), \(a), #\(b)"
+        return "  sub \(target), \(a), \(b)"
       case .add(let target, let a, let b):
-        return "  add \(target), x\(a), #\(b)"
+        return "  add \(target), \(a), \(b)"
+      case .and(let target, let a, let b):
+        return "  and \(target), \(a), \(b)"
+      case .orr(let target, let a, let b):
+        return "  orr \(target), \(a), \(b)"
+      case .mul(let target, let a, let b):
+        return "  mul \(target), \(a), \(b)"
+      case .sdiv(let target, let a, let b):
+        return "  sdiv \(target), \(a), \(b)"
+      case .msub(let target, let a, let b, let c):
+        return "  msub \(target), \(a), \(b), \(c)"
       case .ldr(let target, let source):
         return "  ldr \(target), \(addrStr(source))"
       case .ldrb(let target, let source):
@@ -88,8 +104,10 @@ public struct BackendAArch64: Backend {
         return "  ldp \(t1), \(t2), \(addrStr(source))"
       case .stp(let s1, let s2, let target):
         return "  stp \(s1), \(s2), \(addrStr(target))"
-      case .cmpZero(let reg):
-        return "  cmp \(reg), #0"
+      case .cmp(let reg, let value):
+        return "  cmp \(reg), \(value)"
+      case .cset(let reg, let cond):
+        return "  cset \(reg), \(cond)"
       case .b(let label):
         return "  b \(label)"
       case .bl(let label):
@@ -429,9 +447,9 @@ public struct BackendAArch64: Backend {
       let (insts, reg) = argumentToRegister(frame: frame, argument: value, defaultReg: .x(0))
       switch value.dataType {
       case .integer:
-        return insts + [.cmpZero(reg)]
+        return insts + [.cmp(reg, .int(0))]
       case .string:
-        return insts + [.ldr(.x(8), (.x(0), 0)), .cmpZero(.x(8))]
+        return insts + [.ldr(.x(8), (.x(0), 0)), .cmp(.x(8), .int(0))]
       }
     case .call(let fn, let args):
       if let builtIn = fn.builtIn {
@@ -448,17 +466,59 @@ public struct BackendAArch64: Backend {
     case .callAndStore(let target, let fn, let args):
       switch fn.builtIn {
       case .add:
-        let (inst1, r1) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
-        let (inst2, r2) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(1))
-        let (inst3, sumOut) = writableVariableRegister(frame: frame, target: target)
-        return inst1 + inst2 + [.add(sumOut, r1, .reg(r2))] + inst3
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.add(dst, a, .reg(b))]
+        }
       case .sub:
-        let (inst1, r1) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
-        let (inst2, r2) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(1))
-        let (inst3, sumOut) = writableVariableRegister(frame: frame, target: target)
-        return (inst1 + inst2 + [.sub(sumOut, r1, .reg(r2))] + inst3)
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.sub(dst, a, .reg(b))]
+        }
+      case .and:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.and(dst, a, .reg(b))]
+        }
+      case .or:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.orr(dst, a, .reg(b))]
+        }
+      case .mul:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.mul(dst, a, .reg(b))]
+        }
+      case .div:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.sdiv(dst, a, .reg(b))]
+        }
+      case .mod:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.sdiv(.x(2), a, .reg(b)), .msub(dst, .x(2), b, a)]
+        }
+      case .lt:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "lt")]
+        }
+      case .gt:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "gt")]
+        }
+      case .eqInt:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "eq")]
+        }
+      case .notInt:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, .int(0)), .mov(dst, .int(0)), .cset(dst, "eq")]
+        }
+      case .len:
+        let (insts, reg) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(8))
+        return insts + [.ldr(.x(0), (reg, 0))]
+      case .strAlloc:
+        return encodeFunctionCall(frame: frame, symbol: "_str_alloc", args: args)
+      case .strGet:
+        return encodeFunctionCall(frame: frame, symbol: "_str_get", args: args)
+      case .strFree, .strSet, .putc:
+        fatalError("cannot assign return of call")
       case .none: ()
-      default: fatalError("not implemented")
       }
       let callCode = encodeFunctionCall(frame: frame, symbol: symbolName(fn: fn), args: args)
       let finalCodeLines = registerToVariable(frame: frame, target: target, source: .x(0))
@@ -471,6 +531,18 @@ public struct BackendAArch64: Backend {
     case .returnVoid:
       return [.b("\(symbolName(frame: frame))_epilogue")]
     }
+  }
+
+  internal func encodeBinaryOp(
+    frame: Frame,
+    args: [CFG.Argument],
+    target: CFG.SSAVariable,
+    builder: (Register, Register, Register) -> [CodeLine]
+  ) -> [CodeLine] {
+    let (inst1, r1) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
+    let (inst2, r2) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(1))
+    let (inst3, sumOut) = writableVariableRegister(frame: frame, target: target)
+    return inst1 + inst2 + builder(sumOut, r1, r2) + inst3
   }
 
   internal func encodeFunctionCall(

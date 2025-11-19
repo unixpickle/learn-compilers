@@ -14,3 +14,8 @@ import Testing
   let cfg = try codeToCFG(TableFormatImplementation, opt: .none)
   try checkTableFormatImplementation(cfg: cfg)
 }
+
+@Test func testInterpreterFactor() throws {
+  let cfg = try codeToCFG(FactorImplementation, opt: .none)
+  try checkFactorImplementation(cfg: cfg)
+}

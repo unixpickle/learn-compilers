@@ -71,7 +71,7 @@ public final class StandardLibrary {
         return!(digit_str)
       }
       remaining_str: str = str(remaining)
-      result: str = concat(digit_str, remaining_str)
+      result: str = concat(remaining_str, digit_str)
       str_free(digit_str)
       str_free(remaining_str)
       return!(result)

@@ -126,6 +126,71 @@ func checkTableFormatImplementation(cfg: CFG) throws {
   }
 }
 
+let FactorImplementation = """
+  fn smallest_factor(number: int) -> int {
+    i: int = 2
+    while? (lt(i, number)) {
+      if? (eq(mod(number, i), 0)) {
+        return!(i)
+      }
+      i = add(i, 1)
+    }
+    return!(number)
+  }
+
+  fn concat_free(x: str, y: str) -> str {
+    result: str = concat(x, y)
+    str_free(x)
+    str_free(y)
+    return!(result)
+  }
+
+  fn main(number: int) -> str {
+    result: str = str_alloc(0)
+    while? (gt(number, 1)) {
+      factor: int = smallest_factor(number)
+      factor_str: str = str(factor)
+      if? (result) {
+        times: str = str_alloc(3)
+        str_set(times, 0, 32)
+        str_set(times, 1, 42)
+        str_set(times, 2, 32)
+        result = concat_free(result, times)
+      }
+      result = concat_free(result, factor_str)
+      number = div(number, factor)
+    }
+    return!(result)
+  }
+  """
+
+func checkFactorImplementation(cfg: CFG) throws {
+  let insAndOuts = [
+    (123, "3 * 41"),
+    (710073, "3 * 3 * 3 * 7 * 13 * 17 * 17"),
+  ]
+  let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
+  for (inNum, outStr) in insAndOuts {
+    let interp = try Interpreter(
+      cfg: cfg,
+      entrypoint: mainFunction,
+      arguments: [.integer(Int64(inNum))]
+    )
+    guard let returnVal = interp.run() else {
+      #expect(Bool(false), "got nil return value")
+      continue
+    }
+    if case .string(let x) = returnVal {
+      #expect(x.data == Array(outStr.utf8), "expected output = \(outStr) but got \(x)")
+    } else {
+      #expect(
+        Bool(false),
+        "expected return value of a string but got \(String(describing: returnVal))"
+      )
+    }
+  }
+}
+
 enum OptLevel {
   case none
   case basic
