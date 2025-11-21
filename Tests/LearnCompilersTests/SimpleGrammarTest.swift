@@ -10,6 +10,12 @@ import Testing
     text: "fn main() -> int {\n  x: int = 3\n  y: int = add(x, 4)\n  print(y)\n}"
   )
 
+  // Negative numbers.
+  try await testSimpleGrammarForText(
+    parser: Parser.standard,
+    text: "fn main() -> int {\n  x: int = -32\n  y: int = add(x, -4)\n  print(y)\n}"
+  )
+
   // Multiple functions
   try await testSimpleGrammarForText(
     parser: Parser.standard,

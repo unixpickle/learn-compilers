@@ -12,6 +12,7 @@ public enum BuiltInFunction: Hashable, Sendable {
   case or
   case and
   case putc
+  case getc
   case strAlloc
   case strFree
   case strGet
@@ -32,6 +33,7 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .or: "or"
     case .and: "and"
     case .putc: "putc"
+    case .getc: "getc"
     case .strAlloc: "str_alloc"
     case .strFree: "str_free"
     case .strGet: "str_get"
@@ -54,6 +56,7 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .or: .init(args: [.integer, .integer], ret: .integer)
     case .and: .init(args: [.integer, .integer], ret: .integer)
     case .putc: .init(args: [.integer], ret: nil)
+    case .getc: .init(args: [], ret: .integer)
     case .strAlloc: .init(args: [.integer], ret: .string)
     case .strFree: .init(args: [.string], ret: nil)
     case .strGet: .init(args: [.string, .integer], ret: .integer)
@@ -76,6 +79,7 @@ public enum BuiltInFunction: Hashable, Sendable {
       .or,
       .and,
       .putc,
+      .getc,
       .strAlloc,
       .strFree,
       .strGet,
@@ -111,6 +115,18 @@ public enum BuiltInFunction: Hashable, Sendable {
         return .constInt(x - y)
       } else if case .constInt(0) = args[1] {
         return args[0]
+      }
+    case .mul:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x * y)
+      } else if case .constInt(1) = args[1] {
+        return args[0]
+      } else if case .constInt(1) = args[0] {
+        return args[1]
+      } else if case .constInt(0) = args[1] {
+        return .constInt(0)
+      } else if case .constInt(0) = args[0] {
+        return .constInt(0)
       }
     case .lt:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {

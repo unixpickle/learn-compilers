@@ -656,6 +656,8 @@ public struct CFG {
           resultStack.append(.variable(SSAVariable(variable: v.variable!)))
         case .intLiteral(let v, _):
           resultStack.append(.constInt(v.integer))
+        case .strLiteral(let v, _):
+          resultStack.append(.constStr(v.bytes))
         case .funcCall(let fCall, _):
           opStack.append(.doFuncCall(fCall))
           for arg in fCall.args.reversed() {

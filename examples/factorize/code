@@ -1,0 +1,45 @@
+fn smallest_factor(number: int) -> int {
+  i: int = 2
+  while? (lt(i, number)) {
+    if? (eq(mod(number, i), 0)) {
+      return!(i)
+    }
+    i = add(i, 1)
+  }
+  return!(number)
+}
+
+fn concat_free(x: str, y: str) -> str {
+  result: str = concat(x, y)
+  str_free(x)
+  str_free(y)
+  return!(result)
+}
+
+fn main() -> int {
+  println("enter a positive integer:")
+  input_str: str = readline()
+  number: int = parse_int(input_str)
+  if? (lt(number, 0)) {
+    println("string is not a number")
+    return!(1)
+  }
+
+  result: str = str_alloc(0)
+  while? (gt(number, 1)) {
+    factor: int = smallest_factor(number)
+    factor_str: str = str(factor)
+    if? (result) {
+      result = concat_free(result, str_copy(" * "))
+    }
+    result = concat_free(result, factor_str)
+    number = div(number, factor)
+  }
+
+  print(input_str)
+  str_free(input_str)
+  print(" = ")
+  println(result)
+
+  return!(0)
+}

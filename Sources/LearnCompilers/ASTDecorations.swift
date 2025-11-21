@@ -472,6 +472,7 @@ extension ASTNode {
     func typeFor(expr: AST.Expression) -> Variable.DataType? {
       switch expr {
       case .intLiteral: .integer
+      case .strLiteral: .string
       case .identifier(let id, _): id.variable!.type
       case .funcCall(let call, _): call.identifier.function?.signature.ret
       }

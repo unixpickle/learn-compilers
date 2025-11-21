@@ -50,6 +50,7 @@ public struct BackendAArch64: Backend {
     case mov(Register, RegOrInt)
     case sub(Register, Register, RegOrInt)
     case add(Register, Register, RegOrInt)
+    case addSymbol(Register, Register, String)
     case and(Register, Register, RegOrInt)
     case orr(Register, Register, RegOrInt)
     case mul(Register, Register, RegOrInt)
@@ -61,6 +62,7 @@ public struct BackendAArch64: Backend {
     case strb(Register, Addr)
     case ldp(Register, Register, Addr)
     case stp(Register, Register, Addr)
+    case adrp(Register, String)
     case cmp(Register, RegOrInt)
     case cset(Register, String)
     case b(String)
@@ -81,6 +83,8 @@ public struct BackendAArch64: Backend {
       case .sub(let target, let a, let b):
         return "  sub \(target), \(a), \(b)"
       case .add(let target, let a, let b):
+        return "  add \(target), \(a), \(b)"
+      case .addSymbol(let target, let a, let b):
         return "  add \(target), \(a), \(b)"
       case .and(let target, let a, let b):
         return "  and \(target), \(a), \(b)"
@@ -104,6 +108,8 @@ public struct BackendAArch64: Backend {
         return "  ldp \(t1), \(t2), \(addrStr(source))"
       case .stp(let s1, let s2, let target):
         return "  stp \(s1), \(s2), \(addrStr(target))"
+      case .adrp(let reg, let symbol):
+        return "  adrp \(reg), \(symbol)"
       case .cmp(let reg, let value):
         return "  cmp \(reg), \(value)"
       case .cset(let reg, let cond):
@@ -136,6 +142,32 @@ public struct BackendAArch64: Backend {
       backupRegisters.enumerated().map { (i, reg) in
         (reg, (.x(29), -(stackVarCount + i + 1) * 8))
       }
+    }
+  }
+
+  public struct StringTable {
+    public var strToID = [[UInt8]: Int]()
+
+    public mutating func symbol(_ s: [UInt8]) -> String {
+      if let id = strToID[s] {
+        return "str_const_\(id)"
+      }
+      let id = strToID.count
+      strToID[s] = id
+      return "str_const_\(id)"
+    }
+
+    public func encode() -> String {
+      var result = ""
+      for (bytes, id) in strToID {
+        result += ".p2align 4\n"
+        result += "str_const_\(id):\n"
+        result += "  .quad \(bytes.count)\n"
+        for x in bytes {
+          result += "  .byte \(x)\n"
+        }
+      }
+      return result
     }
   }
 
@@ -191,16 +223,27 @@ public struct BackendAArch64: Backend {
   /// Compile the graph as AArch64 assembly code.
   public func compileAssembly(cfg: CFG) throws -> String {
     let liveness = Liveness(cfg: cfg)
+    var strTable = StringTable()
     var results = cfg.functions.keys.flatMap {
-      compileFunction(cfg: cfg, liveness: liveness, fn: $0)
+      compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
     }
     results.append(contentsOf: Self.strSetCode)
     results.append(contentsOf: Self.strGetCode)
     results.append(contentsOf: Self.allocStrCode)
-    return results.map { $0.code }.joined(separator: "\n")
+    var out = results.map { $0.code }.joined(separator: "\n")
+    let constStr = strTable.encode()
+    if !constStr.isEmpty {
+      out += "\n\n\(constStr)"
+    }
+    return out
   }
 
-  public func compileFunction(cfg: CFG, liveness: Liveness, fn: Function) -> [CodeLine] {
+  public func compileFunction(
+    cfg: CFG,
+    stringTable: inout StringTable,
+    liveness: Liveness,
+    fn: Function
+  ) -> [CodeLine] {
     let frame = calculateFrame(cfg: cfg, liveness: liveness, fn: fn)
     let prologue = encodePrologue(cfg: cfg, frame: frame)
     let epilogue = encodeEpilogue(cfg: cfg, frame: frame)
@@ -209,20 +252,33 @@ public struct BackendAArch64: Backend {
     let allNodeCode = cfg.dfsFrom(node: entrypoint).flatMap { node in
       var bodyCode = [CodeLine]()
       for inst in cfg.nodeCode[node]!.instructions {
-        bodyCode.append(contentsOf: encodeInstruction(cfg: cfg, frame: frame, inst: inst))
+        bodyCode.append(
+          contentsOf: encodeInstruction(
+            cfg: cfg,
+            stringTable: &stringTable,
+            frame: frame,
+            inst: inst
+          )
+        )
       }
       let header = [CodeLine.symbol("cfg_node_\(node.id)")]
       var tail = [CodeLine]()
       switch cfg.successors[node] {
       case .single(let nextNode):
-        let phiCode = encodeParallelPhi(cfg: cfg, frame: frame, from: node, to: nextNode)
+        let phiCode = encodeParallelPhi(
+          cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: nextNode
+        )
         if !phiCode.isEmpty {
           tail.append(contentsOf: phiCode)
         }
         tail.append(.b("cfg_node_\(nextNode.id)"))
       case .branch(let ifFalse, let ifTrue):
-        let falsePhiCode = encodeParallelPhi(cfg: cfg, frame: frame, from: node, to: ifFalse)
-        let truePhiCode = encodeParallelPhi(cfg: cfg, frame: frame, from: node, to: ifTrue)
+        let falsePhiCode = encodeParallelPhi(
+          cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: ifFalse
+        )
+        let truePhiCode = encodeParallelPhi(
+          cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: ifTrue
+        )
         var falseSymbol = "cfg_node_\(ifFalse.id)"
         var trueSymbol = "cfg_node_\(ifTrue.id)"
         var postTail = [CodeLine]()
@@ -348,6 +404,8 @@ public struct BackendAArch64: Backend {
     case .strFree: return true
     case .strGet: return true
     case .strSet: return true
+    case .putc: return true
+    case .getc: return true
     default: return false
     }
   }
@@ -392,7 +450,12 @@ public struct BackendAArch64: Backend {
     return result
   }
 
-  internal func encodeInstruction(cfg: CFG, frame: Frame, inst: CFG.Inst) -> [CodeLine] {
+  internal func encodeInstruction(
+    cfg: CFG,
+    stringTable: inout StringTable,
+    frame: Frame,
+    inst: CFG.Inst
+  ) -> [CodeLine] {
     switch inst.op {
     case .phi:
       return []
@@ -408,8 +471,18 @@ public struct BackendAArch64: Backend {
             .str(.x(8), frame.stackVarAddress(stackIdx)),
           ]
         }
-      case .constStr:
-        fatalError("string constants are not yet supported")
+      case .constStr(let data):
+        let strSymbol = stringTable.symbol(data)
+        switch frame.placement[target]! {
+        case .register(let reg):
+          return [.adrp(reg, "\(strSymbol)@PAGE"), .addSymbol(reg, reg, "\(strSymbol)@PAGEOFF")]
+        case .stack(let stackIdx):
+          return [
+            .adrp(.x(8), "\(strSymbol)@PAGE"),
+            .addSymbol(.x(8), .x(8), "\(strSymbol)@PAGEOFF"),
+            .str(.x(8), frame.stackVarAddress(stackIdx)),
+          ]
+        }
       case .variable(let sourceVar):
         switch frame.placement[target]! {
         case .register(let targetReg):
@@ -450,7 +523,12 @@ public struct BackendAArch64: Backend {
         }
       }
     case .check(let value):
-      let (insts, reg) = argumentToRegister(frame: frame, argument: value, defaultReg: .x(0))
+      let (insts, reg) = argumentToRegister(
+        stringTable: &stringTable,
+        frame: frame,
+        argument: value,
+        defaultReg: .x(0)
+      )
       switch value.dataType {
       case .integer:
         return insts + [.cmp(reg, .int(0))]
@@ -460,15 +538,27 @@ public struct BackendAArch64: Backend {
     case .call(let fn, let args):
       if let builtIn = fn.builtIn {
         if case .putc = builtIn {
-          return encodeFunctionCall(frame: frame, symbol: "_putchar", args: args)
+          return encodeFunctionCall(
+            stringTable: &stringTable, frame: frame, symbol: "_putchar", args: args
+          )
         } else if case .strFree = builtIn {
-          return encodeFunctionCall(frame: frame, symbol: "_free", args: args)
+          return encodeFunctionCall(
+            stringTable: &stringTable, frame: frame, symbol: "_free", args: args
+          )
         } else if case .strSet = builtIn {
-          return encodeFunctionCall(frame: frame, symbol: "_str_set", args: args)
+          return encodeFunctionCall(
+            stringTable: &stringTable, frame: frame, symbol: "_str_set", args: args
+          )
+        } else if case .getc = builtIn {
+          return encodeFunctionCall(
+            stringTable: &stringTable, frame: frame, symbol: "_getchar", args: args
+          )
         }
         return []
       }
-      return encodeFunctionCall(frame: frame, symbol: symbolName(fn: fn), args: args)
+      return encodeFunctionCall(
+        stringTable: &stringTable, frame: frame, symbol: symbolName(fn: fn), args: args
+      )
     case .callAndStore(let target, let fn, let args):
       var symbol: String
       switch fn.builtIn {
@@ -514,14 +604,21 @@ public struct BackendAArch64: Backend {
         }
       case .notInt:
         let (instsIn, source) = argumentToRegister(
-          frame: frame, argument: args[0], defaultReg: .x(0)
+          stringTable: &stringTable, frame: frame, argument: args[0], defaultReg: .x(0)
         )
         let (instsOut, dst) = writableVariableRegister(frame: frame, target: target)
         return instsIn + [.cmp(source, .int(0)), .mov(dst, .int(0)), .cset(dst, "eq")] + instsOut
       case .len:
-        let (instsIn, reg) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(8))
+        let (instsIn, reg) = argumentToRegister(
+          stringTable: &stringTable,
+          frame: frame,
+          argument: args[0],
+          defaultReg: .x(8)
+        )
         let (instsOut, outReg) = writableVariableRegister(frame: frame, target: target)
         return instsIn + [.ldr(outReg, (reg, 0))] + instsOut
+      case .getc:
+        symbol = "_getchar"
       case .strAlloc:
         symbol = "_str_alloc"
       case .strGet:
@@ -531,11 +628,18 @@ public struct BackendAArch64: Backend {
       case .none:
         symbol = symbolName(fn: fn)
       }
-      let callCode = encodeFunctionCall(frame: frame, symbol: symbol, args: args)
+      let callCode = encodeFunctionCall(
+        stringTable: &stringTable, frame: frame, symbol: symbol, args: args
+      )
       let finalCodeLines = registerToVariable(frame: frame, target: target, source: .x(0))
       return callCode + finalCodeLines
     case .returnValue(let arg):
-      let (insts, r) = argumentToRegister(frame: frame, argument: arg, defaultReg: .x(0))
+      let (insts, r) = argumentToRegister(
+        stringTable: &stringTable,
+        frame: frame,
+        argument: arg,
+        defaultReg: .x(0)
+      )
       return insts + (r == .x(0) ? [] : [.mov(.x(0), .reg(r))]) + [
         .b("\(symbolName(frame: frame))_epilogue")
       ]
@@ -550,13 +654,14 @@ public struct BackendAArch64: Backend {
     target: CFG.SSAVariable,
     builder: (Register, Register, Register) -> [CodeLine]
   ) -> [CodeLine] {
-    let (inst1, r1) = argumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
-    let (inst2, r2) = argumentToRegister(frame: frame, argument: args[1], defaultReg: .x(1))
+    let (inst1, r1) = intArgumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
+    let (inst2, r2) = intArgumentToRegister(frame: frame, argument: args[1], defaultReg: .x(1))
     let (inst3, regOut) = writableVariableRegister(frame: frame, target: target)
     return inst1 + inst2 + builder(regOut, r1, r2) + inst3
   }
 
   internal func encodeFunctionCall(
+    stringTable: inout StringTable,
     frame: Frame,
     symbol: String,
     args: [CFG.Argument]
@@ -565,14 +670,18 @@ public struct BackendAArch64: Backend {
     for (i, arg) in args.enumerated() {
       if i < 8 {
         let targetReg = Register.x(i)
-        let (insts, reg) = argumentToRegister(frame: frame, argument: arg, defaultReg: targetReg)
+        let (insts, reg) = argumentToRegister(
+          stringTable: &stringTable, frame: frame, argument: arg, defaultReg: targetReg
+        )
         result.append(contentsOf: insts)
         if reg != targetReg {
           result.append(.mov(targetReg, .reg(reg)))
         }
       } else {
         let stackOffset = i - 8
-        let (insts, reg) = argumentToRegister(frame: frame, argument: arg, defaultReg: .x(8))
+        let (insts, reg) = argumentToRegister(
+          stringTable: &stringTable, frame: frame, argument: arg, defaultReg: .x(8)
+        )
         result.append(contentsOf: insts)
         result.append(.str(reg, (.sp, stackOffset * 8)))
       }
@@ -583,12 +692,14 @@ public struct BackendAArch64: Backend {
 
   internal func encodeParallelPhi(
     cfg: CFG,
+    stringTable: inout StringTable,
     frame: Frame,
     from: CFG.Node,
     to: CFG.Node
   ) -> [CodeLine] {
     var phiMoves = [(VarPlacement, VarPlacement)]()
     var phiConsts = [(VarPlacement, Int64)]()
+    var phiStrs = [(VarPlacement, [UInt8])]()
 
     for inst in cfg.nodeCode[to]!.instructions {
       guard case .phi(let target, let sources) = inst.op else {
@@ -598,8 +709,8 @@ public struct BackendAArch64: Backend {
       switch sources[from]! {
       case .constInt(let x):
         phiConsts.append((t, x))
-      case .constStr:
-        fatalError("string constants not yet implemented")
+      case .constStr(let x):
+        phiStrs.append((t, x))
       case .variable(let v):
         phiMoves.append((t, frame.placement[v]!))
       }
@@ -608,7 +719,10 @@ public struct BackendAArch64: Backend {
     // CodeLineead of doing an efficient parallel move, for now we will simply push
     // all the used variables to the stack and then pop them again.
     if phiMoves.count % 2 == 1 {
-      phiMoves.append((.register(.x(0)), .register(.x(0))))
+      // Add a scratch register so that we keep the stack aligned.
+      // Don't use x0 or x1 because they might be used
+      // as scratch registers for stack variables.
+      phiMoves.append((.register(.x(8)), .register(.x(8))))
     }
 
     var result = [CodeLine]()
@@ -646,22 +760,51 @@ public struct BackendAArch64: Backend {
       result.append(.mov(reg, .int(sourceValue)))
       result.append(contentsOf: code)
     }
+    for (target, sourceData) in phiStrs {
+      let strSymbol = stringTable.symbol(sourceData)
+      let (code, reg) = writableVariableRegister(frame: frame, placement: target)
+      result.append(.adrp(reg, "\(strSymbol)@PAGE"))
+      result.append(.addSymbol(reg, reg, "\(strSymbol)@PAGEOFF"))
+      result.append(contentsOf: code)
+    }
 
     return result
   }
 
   internal func argumentToRegister(
+    stringTable: inout StringTable,
+    frame: Frame,
+    argument: CFG.Argument,
+    defaultReg: Register
+  ) -> ([CodeLine], Register) {
+    switch argument {
+    case .constStr(let x):
+      let strSymbol = stringTable.symbol(x)
+      return (
+        [
+          .adrp(defaultReg, "\(strSymbol)@PAGE"),
+          .addSymbol(defaultReg, defaultReg, "\(strSymbol)@PAGEOFF"),
+        ], defaultReg
+      )
+    default:
+      return intArgumentToRegister(frame: frame, argument: argument, defaultReg: defaultReg)
+    }
+  }
+
+  internal func intArgumentToRegister(
     frame: Frame,
     argument: CFG.Argument,
     defaultReg: Register
   ) -> ([CodeLine], Register) {
     switch argument {
     case .constInt(let x):
-      ([.mov(defaultReg, .int(x))], defaultReg)
+      return ([.mov(defaultReg, .int(x))], defaultReg)
     case .constStr:
-      fatalError("constStr not yet supported")
+      fatalError("string not supported here")
     case .variable(let v):
-      variableToRegister(frame: frame, placement: frame.placement[v]!, defaultReg: defaultReg)
+      return variableToRegister(
+        frame: frame, placement: frame.placement[v]!, defaultReg: defaultReg
+      )
     }
   }
 

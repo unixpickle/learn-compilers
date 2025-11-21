@@ -151,11 +151,7 @@ let FactorImplementation = """
       factor: int = smallest_factor(number)
       factor_str: str = str(factor)
       if? (result) {
-        times: str = str_alloc(3)
-        str_set(times, 0, 32)
-        str_set(times, 1, 42)
-        str_set(times, 2, 32)
-        result = concat_free(result, times)
+        result = concat_free(result, str_copy(" * "))
       }
       result = concat_free(result, factor_str)
       number = div(number, factor)

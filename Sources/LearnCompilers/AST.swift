@@ -594,6 +594,34 @@ public struct AST: ASTNode {
     }
   }
 
+  public struct StrLiteral: ASTNode {
+    public var position: Position? = nil
+    public var text: String
+
+    public var bytes: [UInt8] {
+      let repl = text.replacingOccurrences(
+        of: "\\n", with: "\n"
+      ).replacingOccurrences(
+        of: "\\\"", with: "\""
+      ).replacingOccurrences(
+        of: "\\\\", with: "\\"
+      )
+      var result = Array(repl.utf8)
+      result.remove(at: 0)
+      result.removeLast()
+      return result
+    }
+
+    public var contents: ChildrenOrCode {
+      get { .code(text) }
+      set { text = newValue.code! }
+    }
+
+    internal init(match: ASTMatch) {
+      self.text = toText(match: match)
+    }
+  }
+
   public struct FuncCall: ASTNode {
     public struct FuncArg: ASTNode {
       public var position: Position? = nil
@@ -679,6 +707,7 @@ public struct AST: ASTNode {
     indirect case funcCall(FuncCall, Position?)
     case identifier(Identifier, Position?)
     case intLiteral(IntLiteral, Position?)
+    case strLiteral(StrLiteral, Position?)
 
     public var funcCall: FuncCall? {
       if case .funcCall(let c, _) = self { c } else { nil }
@@ -692,12 +721,17 @@ public struct AST: ASTNode {
       if case .intLiteral(let c, _) = self { c } else { nil }
     }
 
+    public var strLiteral: StrLiteral? {
+      if case .strLiteral(let c, _) = self { c } else { nil }
+    }
+
     public var contents: ChildrenOrCode {
       get {
         switch self {
         case .funcCall(let c, _): .children([c])
         case .identifier(let c, _): .children([c])
         case .intLiteral(let c, _): .children([c])
+        case .strLiteral(let c, _): .children([c])
         }
       }
       set {
@@ -707,6 +741,7 @@ public struct AST: ASTNode {
           case .funcCall(_, let p): .funcCall(c as! FuncCall, p)
           case .identifier(_, let p): .identifier(c as! Identifier, p)
           case .intLiteral(_, let p): .intLiteral(c as! IntLiteral, p)
+          case .strLiteral(_, let p): .strLiteral(c as! StrLiteral, p)
           }
       }
     }
@@ -717,6 +752,7 @@ public struct AST: ASTNode {
         case .funcCall(_, let p): p
         case .identifier(_, let p): p
         case .intLiteral(_, let p): p
+        case .strLiteral(_, let p): p
         }
       }
       set {
@@ -725,6 +761,7 @@ public struct AST: ASTNode {
           case .funcCall(let c, _): .funcCall(c, newValue)
           case .identifier(let c, _): .identifier(c, newValue)
           case .intLiteral(let c, _): .intLiteral(c, newValue)
+          case .strLiteral(let c, _): .strLiteral(c, newValue)
           }
       }
     }
@@ -738,6 +775,7 @@ public struct AST: ASTNode {
       case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]), nil)
       case .nonTerminal(.identifier, _): return .identifier(Identifier(match: rhs[0]), nil)
       case .nonTerminal(.intLiteral, _): return .intLiteral(IntLiteral(match: rhs[0]), nil)
+      case .nonTerminal(.strLiteral, _): return .strLiteral(StrLiteral(match: rhs[0]), nil)
       default: fatalError()
       }
     }

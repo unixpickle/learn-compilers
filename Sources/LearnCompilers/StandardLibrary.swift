@@ -40,6 +40,10 @@ public final class StandardLibrary {
   }
 
   private static let stdlibCode: String = """
+    fn str_copy(x: str) -> str {
+      return!(concat(x, ""))
+    }
+
     fn print(x: str) {
       i: int = 0
       size: int = len(x)
@@ -52,6 +56,23 @@ public final class StandardLibrary {
     fn println(x: str) {
       print(x)
       putc(10)
+    }
+
+    fn readline() -> str {
+      result: str = str_alloc(0)
+      while? (1) {
+        x: int = getc()
+        if? (or(lt(x, 0), eq(x, 10))) {
+          break!()
+        }
+        ch_str: str = str_alloc(1)
+        str_set(ch_str, 0, x)
+        new_result: str = concat(result, ch_str)
+        str_free(result)
+        str_free(ch_str)
+        result = new_result
+      }
+      return!(result)
     }
 
     fn str(x: int) -> str {
@@ -79,6 +100,24 @@ public final class StandardLibrary {
       result: str = concat(remaining_str, digit_str)
       str_free(digit_str)
       str_free(remaining_str)
+      return!(result)
+    }
+
+    fn parse_int(x: str) -> int {
+      if? (not(len(x))) {
+        return!(-1)
+      }
+      result: int = 0
+      i: int = 0
+      while? (lt(i, len(x))) {
+        chr: int = sub(str_get(x, i), 48)
+        if? (or(lt(chr, 0), gt(chr, 9))) {
+          return!(-1)
+        }
+        result = mul(result, 10)
+        result = add(result, chr)
+        i = add(i, 1)
+      }
       return!(result)
     }
 

@@ -63,6 +63,9 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case maybeExpression
   case intLiteral
   case strLiteral
+  case strEscape
+  case strContent
+  case nonNegativeIntLiteral
   case maybeIntLiteral
   case identifier
   case maybeIdentifier
@@ -207,6 +210,7 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.expression, [S.funcCall]),
       rule(.expression, [S.identifier]),
       rule(.expression, [S.intLiteral]),
+      rule(.expression, [S.strLiteral]),
       rule(.maybeExpression, [S.expression]),
       rule(.maybeExpression, []),
 
@@ -215,8 +219,16 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.maybeIdentifier, []),
 
       // Literal helpers.
-      rule(.intLiteral, ["0"]),
+      rule(.intLiteral, ["-", S.nonNegativeIntLiteral]),
+      rule(.intLiteral, [S.nonNegativeIntLiteral]),
+      rule(.nonNegativeIntLiteral, ["0"]),
       rule(.maybeIntLiteral, []),
+      rule(.strLiteral, ["\"", S.strContent, "\""]),
+      rule(.strContent, []),
+      rule(.strContent, [S.strEscape, S.strContent]),
+      rule(.strEscape, ["\\", "n"]),
+      rule(.strEscape, ["\\", "\""]),
+      rule(.strEscape, ["\\", "\\"]),
     ]
 
     for ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_" {
@@ -225,14 +237,29 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       )
     }
 
+    for ch in (32...127) {
+      let chStr = String(Character(UnicodeScalar(ch)!))
+      if chStr == "\\" || chStr == "\"" {
+        continue
+      }
+      rules.append(
+        .init(lhs: .strContent, rhs: [.terminal(chStr), .nonTerminal(S.strContent)])
+      )
+    }
+
     for ch in "0123456789" {
       if ch != "0".first! {
         rules.append(
-          .init(lhs: .intLiteral, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIntLiteral)])
+          .init(
+            lhs: .nonNegativeIntLiteral,
+            rhs: [.terminal(String(ch)), .nonTerminal(.maybeIntLiteral)]
+          )
         )
       }
       rules.append(
-        .init(lhs: .maybeIntLiteral, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIntLiteral)])
+        .init(
+          lhs: .maybeIntLiteral, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIntLiteral)]
+        )
       )
     }
     super.init(

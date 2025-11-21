@@ -1,3 +1,5 @@
+import Foundation
+
 open class Interpreter {
   public class MutableString {
     public var data: [UInt8]
@@ -292,6 +294,14 @@ open class Interpreter {
     case .putc:
       print(Character(UnicodeScalar(UInt8(args[0].integer!))), terminator: "")
       return nil
+    case .getc:
+      if let byte = try? FileHandle.standardInput.read(upToCount: 1),
+        let scalar = byte.first
+      {
+        return .integer(Int64(scalar))
+      } else {
+        return .integer(-1)
+      }
     case .strAlloc:
       return .string(.init(count: Int(args[0].integer!)))
     case .strFree:

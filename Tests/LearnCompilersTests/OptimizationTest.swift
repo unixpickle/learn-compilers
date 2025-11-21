@@ -63,7 +63,11 @@ import Testing
     """
 
   func containsPrint(cfg: CFG) -> Bool {
-    for (_, code) in cfg.nodeCode {
+    let nodes = cfg.dfsFrom(
+      node: cfg.functions.compactMap { $0.key.name == "main" ? $0.value : nil }.first!
+    )
+    for node in nodes {
+      let code = cfg.nodeCode[node]!
       for inst in code.instructions {
         if case .call(let fn, _) = inst.op {
           if fn.name == "print" {
@@ -90,13 +94,13 @@ import Testing
   let code = """
     fn main(x: int, y: int) {
       b: int = eq(add(x, 0), x)
-      unused: int = add(y, 1)
+      TESTING_unused: int = add(y, 1)
       if? (not(b)) {
-        print(str(unused))
+        print(str(TESTING_unused))
       }
-      if? (unused) {
+      if? (TESTING_unused) {
         if? (not(b)) {
-          print(str(unused))
+          print(str(TESTING_unused))
         }
       }
     }
@@ -106,7 +110,7 @@ import Testing
     for (_, code) in cfg.nodeCode {
       for inst in code.instructions {
         for v in inst.op.defs {
-          if v.variable.name == "unused" {
+          if v.variable.name == "TESTING_unused" {
             return true
           }
         }
