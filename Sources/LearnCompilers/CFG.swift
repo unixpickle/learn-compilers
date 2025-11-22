@@ -200,7 +200,7 @@ public struct CFG {
     var orderedVars = [Variable]()
 
     for node in nodes.sorted(by: { $0.id < $1.id }) {
-      nodeToFrontier[node] = domTree.dominanceFrontier(of: node)
+      nodeToFrontier[node] = domTree.iteratedDominanceFrontier(of: node)
       for inst in nodeCode[node]!.instructions {
         for v in inst.op.defs + inst.op.uses {
           if varToNode[v.variable] == nil {

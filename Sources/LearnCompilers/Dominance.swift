@@ -41,6 +41,21 @@ public struct DominatorTree {
     return result
   }
 
+  public func iteratedDominanceFrontier(of node: CFG.Node) -> Set<CFG.Node> {
+    var result: Set<CFG.Node> = []
+    var explored: Set<CFG.Node> = [node]
+    var queue = [node]
+    while let n = queue.popLast() {
+      for d in dominanceFrontier(of: n) {
+        result.insert(d)
+        if explored.insert(d).inserted {
+          queue.append(d)
+        }
+      }
+    }
+    return result
+  }
+
   public func dominated(by node: CFG.Node) -> [CFG.Node] {
     var result = [CFG.Node]()
     var stack = [node]
