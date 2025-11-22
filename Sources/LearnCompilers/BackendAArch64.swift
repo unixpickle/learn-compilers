@@ -510,14 +510,14 @@ public struct BackendAArch64: Backend {
         if argIdx < 8 {
           return [.mov(targetReg, .reg(.x(argIdx)))]
         } else {
-          return [.ldr(targetReg, (.x(29), 16 + 8 * argIdx))]
+          return [.ldr(targetReg, (.x(29), 16 + 8 * (argIdx - 8)))]
         }
       case .stack(let targetIdx):
         if argIdx < 8 {
           return [.str(.x(argIdx), frame.stackVarAddress(targetIdx))]
         } else {
           return [
-            .ldr(.x(8), (.x(29), 16 + 8 * argIdx)),
+            .ldr(.x(8), (.x(29), 16 + 8 * (argIdx - 8))),
             .str(.x(8), frame.stackVarAddress(targetIdx)),
           ]
         }
