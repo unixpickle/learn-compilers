@@ -103,6 +103,241 @@ import Testing
   #expect(output == Data("abcdefghijk are some letters\n".utf8))
 }
 
+@Test func testBackendAArch64Brainfck() throws {
+  let code = """
+    fn comment(x: str) {}
+
+    fn read_all() -> str {
+      result: str = str_alloc(0)
+      while? (1) {
+        x: int = getc()
+        if? (lt(x, 0)) {
+          break!()
+        }
+        one: str = str_alloc(1)
+        str_set(one, 0, x)
+        new_result: str = concat(result, one)
+        str_free(result)
+        str_free(one)
+        result = new_result
+      }
+      return!(result)
+    }
+
+    fn grow_zeroed(s: str, new_len: int) -> str {
+      old_len: int = len(s)
+      if? (not(lt(new_len, old_len))) {
+        comment("allocate new, copy old, zero the rest")
+        t: str = str_alloc(new_len)
+        i: int = 0
+        while? (lt(i, old_len)) {
+          str_set(t, i, str_get(s, i))
+          i = add(i, 1)
+        }
+        while? (lt(i, new_len)) {
+          str_set(t, i, 0)
+          i = add(i, 1)
+        }
+        str_free(s)
+        return!(t)
+      }
+      return!(s)
+    }
+
+    fn match_forward(prog: str, pos: int) -> int {
+      n: int = len(prog)
+      depth: int = 1
+      i: int = add(pos, 1)
+      while? (lt(i, n)) {
+        ch: int = str_get(prog, i)
+        if? (eq(ch, 91)) {
+          comment("is_command '['")
+          depth = add(depth, 1)
+        }
+        if? (eq(ch, 93)) {
+          comment("is_command ']'")
+          depth = sub(depth, 1)
+          if? (eq(depth, 0)) {
+            return!(i)
+          }
+        }
+        i = add(i, 1)
+      }
+      return!(-1)
+    }
+
+    fn match_backward(prog: str, pos: int) -> int {
+      depth: int = 1
+      i: int = sub(pos, 1)
+      while? (not(lt(i, 0))) {
+        ch: int = str_get(prog, i)
+        if? (eq(ch, 93)) {
+          comment("is_command ']' while scanning backward")
+          depth = add(depth, 1)
+        }
+        if? (eq(ch, 91)) {
+          comment("is_command '[' while scanning backward")
+          depth = sub(depth, 1)
+          if? (eq(depth, 0)) {
+            return!(i)
+          }
+        }
+        i = sub(i, 1)
+      }
+      return!(-1)
+    }
+
+    fn ensure_tape_capacity(tape: str, needed_index: int) -> str {
+      needed_len: int = add(needed_index, 1)
+      if? (lt(len(tape), needed_len)) {
+        comment("grow to needed_len")
+        return!(grow_zeroed(tape, needed_len))
+      }
+      return!(tape)
+    }
+
+    fn cell_inc(v: int) -> int {
+      nv: int = add(v, 1)
+      if? (gt(nv, 255)) {
+        return!(0)
+      }
+      return!(nv)
+    }
+
+    fn cell_dec(v: int) -> int {
+      nv: int = sub(v, 1)
+      if? (lt(nv, 0)) {
+        return!(255)
+      }
+      return!(nv)
+    }
+
+    fn run_bf(program: str) {
+      pc: int = 0
+      plen: int = len(program)
+      dp: int = 0
+
+      comment("start with 1 zeroed cell")
+      tape: str = str_alloc(1)
+      str_set(tape, 0, 0)
+
+      while? (lt(pc, plen)) {
+        op: int = str_get(program, pc)
+        is_command: int = 0
+
+        if? (eq(op, 62)) {
+          comment("'>'")
+          is_command = 1
+          dp = add(dp, 1)
+          tape = ensure_tape_capacity(tape, dp)
+          pc = add(pc, 1)
+        }
+
+        if? (eq(op, 60)) {
+          comment("'<'")
+          is_command = 1
+          dp = sub(dp, 1)
+          if? (lt(dp, 0)) {
+            dp = 0
+          }
+          pc = add(pc, 1)
+        }
+
+        if? (eq(op, 43)) {
+          comment("'+'")
+          is_command = 1
+          cur: int = str_get(tape, dp)
+          cur = cell_inc(cur)
+          str_set(tape, dp, cur)
+          pc = add(pc, 1)
+        }
+
+        if? (eq(op, 45)) {
+          comment("'-'")
+          is_command = 1
+          cur: int = str_get(tape, dp)
+          cur = cell_dec(cur)
+          str_set(tape, dp, cur)
+          pc = add(pc, 1)
+        }
+
+        if? (eq(op, 46)) {
+          comment("'.'")
+          is_command = 1
+          putc(str_get(tape, dp))
+          pc = add(pc, 1)
+        }
+
+        if? (eq(op, 91)) {
+          comment("'['")
+          is_command = 1
+          cur: int = str_get(tape, dp)
+          if? (eq(cur, 0)) {
+            j: int = match_forward(program, pc)
+            if? (lt(j, 0)) {
+              comment("unmatched '['")
+              pc = add(pc, 1)
+            }
+            if? (not(lt(j, 0))) {
+              pc = add(j, 1)
+            }
+          }
+          if? (not(eq(cur, 0))) {
+            pc = add(pc, 1)
+          }
+        }
+
+        if? (eq(op, 93)) {
+          comment("']'")
+          is_command = 1
+          cur2: int = str_get(tape, dp)
+          if? (eq(cur2, 0)) {
+            pc = add(pc, 1)
+          }
+          if? (not(eq(cur2, 0))) {
+            j2: int = match_backward(program, pc)
+            if? (lt(j2, 0)) {
+              comment("unmatched ']'")
+              pc = add(pc, 1)
+            }
+            if? (not(lt(j2, 0))) {
+              pc = add(j2, 1)
+            }
+          }
+        }
+
+        if? (not(is_command)) {
+          comment("ignore non-BF chars")
+          pc = add(pc, 1)
+        }
+      }
+    }
+
+    fn main() -> int {
+      program: str = read_all()
+      run_bf(program)
+      return!(0)
+    }
+
+    """
+  let input = """
+      >++++++++[<+++++++++>-]<.
+      >++++[<+++++++>-]<+.
+      +++++++..
+      +++.
+      >>++++++[<+++++++>-]<++.
+      ------------.
+      >++++++[<+++++++++>-]<+.
+      <.
+      +++.
+      ------.
+      --------.
+      >>>++++[<++++++++>-]<+.
+    """
+  let output = try runCode(code: code, stdin: Data(input.utf8))
+  #expect(output == Data("Hello, World!".utf8))
+}
+
 enum CompileError: Error {
   case clangError(String)
 }

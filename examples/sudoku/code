@@ -1,0 +1,117 @@
+fn comment(x: str) {}
+
+fn read_line_strip() -> str {
+  line: str = readline()
+  if? (gt(len(line), 0)) {
+    if? (eq(str_get(line, sub(len(line), 1)), 10)) {
+      comment("remove trailing newline if any")
+      newlen: int = sub(len(line), 1)
+      newstr: str = str_alloc(newlen)
+      i: int = 0
+      while? (lt(i, newlen)) {
+        str_set(newstr, i, str_get(line, i))
+        i = add(i, 1)
+      }
+      str_free(line)
+      return!(newstr)
+    }
+  }
+  return!(line)
+}
+
+fn read_board() -> str {
+  board: str = str_alloc(0)
+  i: int = 0
+  while? (lt(i, 9)) {
+    row: str = read_line_strip()
+    new_board: str = concat(board, row)
+    str_free(board)
+    str_free(row)
+    board = new_board
+    i = add(i, 1)
+  }
+  return!(board)
+}
+
+fn print_board(board: str) {
+  i: int = 0
+  while? (lt(i, 81)) {
+    putc(str_get(board, i))
+    if? (eq(mod(add(i,1),9),0)) {
+      putc(10)
+    }
+    i = add(i, 1)
+  }
+}
+
+fn same_row(i: int, j: int) -> int {
+  return!(eq(div(i,9), div(j,9)))
+}
+
+fn same_col(i: int, j: int) -> int {
+  return!(eq(mod(i,9), mod(j,9)))
+}
+
+fn same_box(i: int, j: int) -> int {
+  box_i: int = add(mul(div(div(i,9),3),3), div(mod(i,9),3))
+  box_j: int = add(mul(div(div(j,9),3),3), div(mod(j,9),3))
+  return!(eq(box_i, box_j))
+}
+
+fn is_valid(board: str, pos: int, ch: int) -> int {
+  i: int = 0
+  while? (lt(i,81)) {
+    if? (eq(str_get(board,i), ch)) {
+      if? (or(same_row(i,pos), or(same_col(i,pos), same_box(i,pos)))) {
+        return!(0)
+      }
+    }
+    i = add(i,1)
+  }
+  return!(1)
+}
+
+fn find_empty(board: str) -> int {
+  i: int = 0
+  while? (lt(i,81)) {
+    if? (eq(str_get(board,i),46)) {
+      return!(i)
+    }
+    i = add(i,1)
+  }
+  return!(-1)
+}
+
+fn solve(board: str) -> int {
+  pos: int = find_empty(board)
+  if? (lt(pos,0)) {
+    return!(1)
+  }
+  comment("iterate '1' through '9'")
+  d: int = 49
+  while? (lt(d,58)) {
+    if? (is_valid(board,pos,d)) {
+      str_set(board,pos,d)
+      if? (solve(board)) {
+        return!(1)
+      }
+      str_set(board,pos,46)
+    }
+    d = add(d,1)
+  }
+  return!(0)
+}
+
+fn main() -> int {
+  comment("read board")
+  board: str = read_board()
+  comment("solve board with DFS backtracking")
+  solved: int = solve(board)
+  if? (solved) {
+    print_board(board)
+  }
+  if? (not(solved)) {
+    println("no solution")
+  }
+  return!(0)
+}
