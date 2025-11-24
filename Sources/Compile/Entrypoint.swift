@@ -42,7 +42,7 @@ struct CompileApp {
       let outputString = try BackendAArch64().compileAssembly(cfg: cfg)
       try outputString.write(toFile: outputPath, atomically: true, encoding: .utf8)
     } catch {
-      print("Error: \(error.localizedDescription)")
+      print("Error: \(error)")
       exit(1)
     }
   }

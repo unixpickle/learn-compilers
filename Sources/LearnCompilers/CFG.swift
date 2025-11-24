@@ -187,9 +187,7 @@ public struct CFG {
     let domTree = DominatorTree(cfg: self)
     insertPhi(domTree: domTree)
     numberVariables(domTree: domTree)
-
-    // This is necessary to prune partially-populated phi functions.
-    eliminateUnusedVariables(phiOnly: true)
+    eliminateIncompletePhi()
   }
 
   private mutating func insertPhi(domTree: DominatorTree) {
@@ -322,61 +320,57 @@ public struct CFG {
     }
   }
 
-  /// Remove variable definitions that have no uses.
-  @discardableResult
-  public mutating func eliminateUnusedVariables(phiOnly: Bool = false) -> Bool {
-    var succeeded = false
-    var converged = false
-    while !converged {
-      converged = true
-
-      var usageCount = [SSAVariable: Int]()
-      for node in nodes {
-        for inst in nodeCode[node]!.instructions {
-          // Exclude phi's with itself as an argument
-          let defs = Set(inst.op.defs)
-          let uses = Set(inst.op.uses).subtracting(defs)
-
-          for use in uses {
-            usageCount[use, default: 0] += 1
-          }
-        }
-      }
-
+  private mutating func eliminateIncompletePhi() {
+    let retVars = Set(returnVariables())
+    while true {
+      var deletedVariables = Set<SSAVariable>()
       for node in nodes {
         var newCode = nodeCode[node]!
         var i = 0
         while i < newCode.instructions.count {
           let inst = newCode.instructions[i]
-          if phiOnly {
-            if case .phi = inst.op {
-            } else {
-              // Do not drop the instruction because it's a phi.
-              i += 1
-              continue
+          if case .phi(let v, let branches) = inst.op {
+            if Set(branches.keys) != Set(predecessors[node, default: []]) {
+              if !retVars.contains(v.variable) {
+                deletedVariables.insert(v)
+                newCode.instructions.remove(at: i)
+                continue
+              }
             }
           }
-          let defs = inst.op.defs
-          if let def = defs.first, defs.count == 1, usageCount[def, default: 0] == 0 {
-            if case .callAndStore(_, let fn, let args) = inst.op {
-              // The function call might have side-effects that we want to keep.
-              newCode.instructions[i].op = .call(fn, args)
-              i += 1
-            } else {
-              newCode.instructions.remove(at: i)
-            }
-            converged = false
+          i += 1
+        }
+        nodeCode[node] = newCode
+      }
+      if deletedVariables.isEmpty {
+        break
+      }
+      for node in nodes {
+        var newCode = nodeCode[node]!
+        for i in 0..<newCode.instructions.count {
+          let inst = newCode.instructions[i]
+          if case .phi(let v, let branches) = inst.op {
+            newCode.instructions[i].op = .phi(
+              v,
+              Dictionary(
+                uniqueKeysWithValues: branches.filter {
+                  if case .variable(let v) = $0.value {
+                    return !deletedVariables.contains(v)
+                  }
+                  return true
+                }
+              )
+            )
           } else {
-            i += 1
+            assert(
+              inst.op.uses.allSatisfy { !deletedVariables.contains($0) },
+              "deleted phi variable used in non-phi instruction"
+            )
           }
         }
         nodeCode[node] = newCode
       }
-      if !converged {
-        succeeded = true
-      }
     }
-    return succeeded
   }
 
   /// Raise an error if any functions are missing returns, or crash if

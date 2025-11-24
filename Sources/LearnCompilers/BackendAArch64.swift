@@ -63,6 +63,7 @@ public struct BackendAArch64: Backend {
     case ldp(Register, Register, Addr)
     case stp(Register, Register, Addr)
     case adrp(Register, String)
+    case sxtw(Register, Register)
     case cmp(Register, RegOrInt)
     case cset(Register, String)
     case b(String)
@@ -110,6 +111,8 @@ public struct BackendAArch64: Backend {
         return "  stp \(s1), \(s2), \(addrStr(target))"
       case .adrp(let reg, let symbol):
         return "  adrp \(reg), \(symbol)"
+      case .sxtw(let r1, let r2):
+        return "  sxtw \(r1), \(r2)"
       case .cmp(let reg, let value):
         return "  cmp \(reg), \(value)"
       case .cset(let reg, let cond):
@@ -629,7 +632,11 @@ public struct BackendAArch64: Backend {
         symbol = symbolName(fn: fn)
       }
       let callCode = encodeFunctionCall(
-        stringTable: &stringTable, frame: frame, symbol: symbol, args: args
+        stringTable: &stringTable,
+        frame: frame,
+        symbol: symbol,
+        args: args,
+        signExtend: fn.builtIn == .getc
       )
       let finalCodeLines = registerToVariable(frame: frame, target: target, source: .x(0))
       return callCode + finalCodeLines
@@ -664,7 +671,8 @@ public struct BackendAArch64: Backend {
     stringTable: inout StringTable,
     frame: Frame,
     symbol: String,
-    args: [CFG.Argument]
+    args: [CFG.Argument],
+    signExtend: Bool = false
   ) -> [CodeLine] {
     var result = [CodeLine]()
     for (i, arg) in args.enumerated() {
@@ -687,6 +695,9 @@ public struct BackendAArch64: Backend {
       }
     }
     result.append(.bl(symbol))
+    if signExtend {
+      result.append(.sxtw(.x(0), .w(0)))
+    }
     return result
   }
 

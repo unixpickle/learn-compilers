@@ -78,17 +78,12 @@ public final class StandardLibrary {
     fn str(x: int) -> str {
       if? (lt(x, 0)) {
         pos_str: str = str(sub(0, x))
-        minus: str = str_alloc(1)
-        str_set(minus, 0, 45)
-        result: str = concat(minus, pos_str)
+        result: str = concat("-", pos_str)
         str_free(pos_str)
-        str_free(minus)
         return!(result)
       }
       if? (eq(x, 0)) {
-        result: str = str_alloc(1)
-        str_set(result, 0, 48)
-        return!(result)
+        return!(str_copy("0"))
       }
       digit_str: str = str_alloc(1)
       str_set(digit_str, 0, add(mod(x, 10), 48))

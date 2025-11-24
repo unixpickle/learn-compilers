@@ -68,6 +68,7 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case nonNegativeIntLiteral
   case maybeIntLiteral
   case identifier
+  case identifierAfterFirst
   case maybeIdentifier
   case funcDecl
   case funcArgDeclList
@@ -215,7 +216,7 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.maybeExpression, []),
 
       // Helper used by identifier to enforce non-emptiness
-      rule(.maybeIdentifier, [S.identifier]),
+      rule(.maybeIdentifier, [S.identifierAfterFirst]),
       rule(.maybeIdentifier, []),
 
       // Literal helpers.
@@ -233,7 +234,18 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
 
     for ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_" {
       rules.append(
+        .init(
+          lhs: .identifierAfterFirst, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIdentifier)]
+        )
+      )
+      rules.append(
         .init(lhs: .identifier, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIdentifier)])
+      )
+    }
+    for ch in "0123456789" {
+      rules.append(
+        .init(
+          lhs: .identifierAfterFirst, rhs: [.terminal(String(ch)), .nonTerminal(.maybeIdentifier)])
       )
     }
 
