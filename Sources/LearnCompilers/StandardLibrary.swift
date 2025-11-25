@@ -53,6 +53,12 @@ public final class StandardLibrary {
       }
     }
 
+    fn print_int(x: int) {
+      y: str = str(x)
+      print(y)
+      str_free(y)
+    }
+
     fn println(x: str) {
       print(x)
       putc(10)

@@ -1,5 +1,9 @@
 public struct BackendAArch64: Backend {
 
+  public enum CompileError: Error {
+    case stackOverflow(String)
+  }
+
   public enum Register: CustomStringConvertible, Equatable, Sendable {
     case x(Int)
     case w(Int)
@@ -16,7 +20,7 @@ public struct BackendAArch64: Backend {
 
   public enum RegOrInt: CustomStringConvertible, Equatable, Sendable {
     case reg(Register)
-    case int(Int64)
+    case int(UInt16)
 
     public var description: String {
       switch self {
@@ -48,6 +52,7 @@ public struct BackendAArch64: Backend {
     case alignPow2(Int)
     case symbol(String)
     case mov(Register, RegOrInt)
+    case movk(Register, UInt16, UInt8)
     case sub(Register, Register, RegOrInt)
     case add(Register, Register, RegOrInt)
     case addSymbol(Register, Register, String)
@@ -81,6 +86,8 @@ public struct BackendAArch64: Backend {
         return "\(name):"
       case .mov(let target, let source):
         return "  mov \(target), \(source)"
+      case .movk(let target, let value, let shift):
+        return "  movk \(target), #\(value), lsl #\(shift)"
       case .sub(let target, let a, let b):
         return "  sub \(target), \(a), \(b)"
       case .add(let target, let a, let b):
@@ -179,9 +186,9 @@ public struct BackendAArch64: Backend {
     .alignPow2(2),
     .symbol("_str_alloc"),
     // Stack frame
-    .sub(.sp, .sp, .int(Int64(32))),
+    .sub(.sp, .sp, .int(32)),
     .stp(.x(29), .x(30), (.sp, 16)),
-    .add(.x(29), .sp, .int(Int64(16))),
+    .add(.x(29), .sp, .int(16)),
     // Backup callee-saved registers
     .stp(.x(19), .x(20), (.sp, 0)),
     // Allocate buffer and store length into it
@@ -193,7 +200,7 @@ public struct BackendAArch64: Backend {
     .ldp(.x(19), .x(20), (.sp, 0)),
     // Exit stack frame
     .ldp(.x(29), .x(30), (.sp, 16)),
-    .add(.sp, .sp, .int(Int64(32))),
+    .add(.sp, .sp, .int(32)),
     .ret,
   ]
 
@@ -227,8 +234,8 @@ public struct BackendAArch64: Backend {
   public func compileAssembly(cfg: CFG) throws -> String {
     let liveness = Liveness(cfg: cfg)
     var strTable = StringTable()
-    var results = cfg.functions.keys.flatMap {
-      compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
+    var results = try cfg.functions.keys.flatMap {
+      try compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
     }
     results.append(contentsOf: Self.strSetCode)
     results.append(contentsOf: Self.strGetCode)
@@ -246,8 +253,8 @@ public struct BackendAArch64: Backend {
     stringTable: inout StringTable,
     liveness: Liveness,
     fn: Function
-  ) -> [CodeLine] {
-    let frame = calculateFrame(cfg: cfg, liveness: liveness, fn: fn)
+  ) throws -> [CodeLine] {
+    let frame = try calculateFrame(cfg: cfg, liveness: liveness, fn: fn)
     let prologue = encodePrologue(cfg: cfg, frame: frame)
     let epilogue = encodeEpilogue(cfg: cfg, frame: frame)
 
@@ -308,7 +315,7 @@ public struct BackendAArch64: Backend {
     return prologue + allNodeCode + epilogue
   }
 
-  internal func calculateFrame(cfg: CFG, liveness: Liveness, fn: Function) -> Frame {
+  internal func calculateFrame(cfg: CFG, liveness: Liveness, fn: Function) throws -> Frame {
     let fnNodes = cfg.dfsFrom(node: cfg.functions[fn]!)
     var interference = Liveness.VariableGraph()
     var affinity = Liveness.VariableGraph()
@@ -353,6 +360,10 @@ public struct BackendAArch64: Backend {
     // Keep stack 16-byte aligned
     if stackAllocation % 2 != 0 {
       stackAllocation += 1
+    }
+
+    if stackAllocation * 8 + 16 >= 0x10000 {
+      throw CompileError.stackOverflow("stack allocations for function \(fn) exceed 64k")
     }
 
     return Frame(
@@ -431,9 +442,9 @@ public struct BackendAArch64: Backend {
       .globl(symbolName),
       .alignPow2(2),
       .symbol(symbolName),
-      .sub(.sp, .sp, .int(Int64(frame.stackAllocation * 8 + 16))),
+      .sub(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))),
       .stp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)),
-      .add(.x(29), .sp, .int(Int64(frame.stackAllocation * 8))),
+      .add(.x(29), .sp, .int(UInt16(frame.stackAllocation * 8))),
     ]
     for (reg, addr) in frame.backupRegisterAddresses() {
       result.append(.str(reg, addr))
@@ -448,7 +459,7 @@ public struct BackendAArch64: Backend {
       result.append(.ldr(reg, addr))
     }
     result.append(.ldp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)))
-    result.append(.add(.sp, .sp, .int(Int64(frame.stackAllocation * 8 + 16))))
+    result.append(.add(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))))
     result.append(.ret)
     return result
   }
@@ -463,49 +474,21 @@ public struct BackendAArch64: Backend {
     case .phi:
       return []
     case .copy(let target, let source):
-      switch source {
-      case .constInt(let x):
-        switch frame.placement[target]! {
-        case .register(let reg):
-          return [.mov(reg, .int(x))]
-        case .stack(let stackIdx):
-          return [
-            .mov(.x(8), .int(x)),
-            .str(.x(8), frame.stackVarAddress(stackIdx)),
-          ]
-        }
-      case .constStr(let data):
-        let strSymbol = stringTable.symbol(data)
-        switch frame.placement[target]! {
-        case .register(let reg):
-          return [.adrp(reg, "\(strSymbol)@PAGE"), .addSymbol(reg, reg, "\(strSymbol)@PAGEOFF")]
-        case .stack(let stackIdx):
-          return [
-            .adrp(.x(8), "\(strSymbol)@PAGE"),
-            .addSymbol(.x(8), .x(8), "\(strSymbol)@PAGEOFF"),
-            .str(.x(8), frame.stackVarAddress(stackIdx)),
-          ]
-        }
-      case .variable(let sourceVar):
-        switch frame.placement[target]! {
-        case .register(let targetReg):
-          switch frame.placement[sourceVar]! {
-          case .register(let sourceReg):
-            return [.mov(targetReg, .reg(sourceReg))]
-          case .stack(let stackIdx):
-            return [.ldr(targetReg, frame.stackVarAddress(stackIdx))]
-          }
-        case .stack(let targetIdx):
-          switch frame.placement[sourceVar]! {
-          case .register(let sourceReg):
-            return [.str(sourceReg, frame.stackVarAddress(targetIdx))]
-          case .stack(let sourceIdx):
-            return [
-              .ldr(.x(8), frame.stackVarAddress(sourceIdx)),
-              .str(.x(8), frame.stackVarAddress(targetIdx)),
-            ]
-          }
-        }
+      let (targetCode, targetReg) = writableVariableRegister(
+        frame: frame,
+        target: target,
+        defaultReg: .x(8)
+      )
+      let (sourceCode, sourceReg) = argumentToRegister(
+        stringTable: &stringTable,
+        frame: frame,
+        argument: source,
+        defaultReg: targetReg
+      )
+      if targetReg != sourceReg {
+        return sourceCode + [.mov(targetReg, .reg(sourceReg))] + targetCode
+      } else {
+        return sourceCode + targetCode
       }
     case .funcArg(let target, let argIdx):
       switch frame.placement[target]! {
@@ -736,9 +719,13 @@ public struct BackendAArch64: Backend {
       phiMoves.append((.register(.x(8)), .register(.x(8))))
     }
 
+    if (phiMoves.count * 8) >= 0x10000 {
+      fatalError("too many phi moves; should have already been caught by stack overflow")
+    }
+
     var result = [CodeLine]()
     if !phiMoves.isEmpty {
-      result.append(.sub(.sp, .sp, .int(Int64(phiMoves.count * 8))))
+      result.append(.sub(.sp, .sp, .int(UInt16(phiMoves.count * 8))))
       for i in stride(from: 0, to: phiMoves.count, by: 2) {
         let (_, source1) = phiMoves[i]
         let (_, source2) = phiMoves[i + 1]
@@ -764,11 +751,11 @@ public struct BackendAArch64: Backend {
         result.append(contentsOf: writeback1)
         result.append(contentsOf: writeback2)
       }
-      result.append(.add(.sp, .sp, .int(Int64(phiMoves.count * 8))))
+      result.append(.add(.sp, .sp, .int(UInt16(phiMoves.count * 8))))
     }
     for (target, sourceValue) in phiConsts {
       let (code, reg) = writableVariableRegister(frame: frame, placement: target)
-      result.append(.mov(reg, .int(sourceValue)))
+      result.append(contentsOf: encodeConstantMov(target: reg, value: sourceValue))
       result.append(contentsOf: code)
     }
     for (target, sourceData) in phiStrs {
@@ -809,7 +796,7 @@ public struct BackendAArch64: Backend {
   ) -> ([CodeLine], Register) {
     switch argument {
     case .constInt(let x):
-      return ([.mov(defaultReg, .int(x))], defaultReg)
+      return (encodeConstantMov(target: defaultReg, value: x), defaultReg)
     case .constStr:
       fatalError("string not supported here")
     case .variable(let v):
@@ -868,6 +855,18 @@ public struct BackendAArch64: Backend {
     case .stack(let idx):
       [.str(source, frame.stackVarAddress(idx))]
     }
+  }
+
+  internal func encodeConstantMov(target: Register, value: Int64) -> [CodeLine] {
+    let v64 = UInt64(bitPattern: value)
+    var result = [CodeLine.mov(target, .int(UInt16(v64 & 0xffff)))]
+    for i in stride(from: 16, through: 48, by: 16) {
+      let word = UInt16((v64 >> i) & 0xffff)
+      if word != 0 {
+        result.append(.movk(target, word, UInt8(i)))
+      }
+    }
+    return result
   }
 
 }

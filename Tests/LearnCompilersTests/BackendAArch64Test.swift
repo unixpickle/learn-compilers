@@ -10,7 +10,7 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data())
+  let output = try runCode(code: code, stdin: Data(), optimize: true)
   #expect(output == Data("hello, world!\n".utf8))
 }
 
@@ -62,7 +62,7 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data("103928\n".utf8))
+  let output = try runCode(code: code, stdin: Data("103928\n".utf8), optimize: true)
   #expect(output == Data("enter a positive integer:\n103928 = 2 * 2 * 2 * 11 * 1181\n".utf8))
 }
 
@@ -99,8 +99,23 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data("abcdefghijk".utf8))
+  let output = try runCode(code: code, stdin: Data("abcdefghijk".utf8), optimize: true)
   #expect(output == Data("abcdefghijk are some letters\n".utf8))
+}
+
+@Test func testBackendAArch64LargeConstants() throws {
+  let code = """
+    fn main() -> int {
+      x: int = 12345678901
+      print_int(x)
+      println("")
+      return!(0)
+    }
+    """
+  for opt in [false, true] {
+    let output = try runCode(code: code, stdin: Data(), optimize: opt)
+    #expect(output == Data("12345678901\n".utf8))
+  }
 }
 
 @Test func testBackendAArch64Brainfck() throws {
@@ -334,22 +349,24 @@ import Testing
       --------.
       >>>++++[<++++++++>-]<+.
     """
-  let output = try runCode(code: code, stdin: Data(input.utf8))
-  #expect(output == Data("Hello, World!".utf8))
+  for opt in [false, true] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+    #expect(output == Data("Hello, World!".utf8))
+  }
 }
 
 enum CompileError: Error {
   case clangError(String)
 }
 
-func runCode(code: String, stdin: Data) throws -> Data {
+func runCode(code: String, stdin: Data, optimize: Bool) throws -> Data {
   let baseURL = FileManager.default.temporaryDirectory
   let uniqueName = UUID().uuidString
   let dirURL = baseURL.appendingPathComponent("lc-\(uniqueName)", isDirectory: true)
   try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: dirURL) }
 
-  try compileCode(code: code, tmpDir: dirURL)
+  try compileCode(code: code, tmpDir: dirURL, optimize: optimize)
 
   let exeURL = dirURL.appending(component: "a.out")
 
@@ -389,7 +406,7 @@ func runCode(code: String, stdin: Data) throws -> Data {
   return outputData.finalData
 }
 
-func compileCode(code: String, tmpDir: URL) throws {
+func compileCode(code: String, tmpDir: URL, optimize: Bool) throws {
   let match = try Parser.parse(code)
   var ast = AST(match: match)
 
@@ -405,7 +422,9 @@ func compileCode(code: String, tmpDir: URL) throws {
   var cfg = CFG(ast: ast)
   cfg.add(ast: StandardLibrary.ast)
   cfg.insertPhiAndNumberVars()
-  cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+  if optimize {
+    cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+  }
   try cfg.checkMissingReturns()
 
   let asmCode = try BackendAArch64().compileAssembly(cfg: cfg)
