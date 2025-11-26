@@ -109,12 +109,18 @@ import Testing
       x: int = 12345678901
       print_int(x)
       println("")
+      x = 16776978
+      print_int(x)
+      println("")
+      x = 65535
+      print_int(x)
+      println("")
       return!(0)
     }
     """
   for opt in [false, true] {
     let output = try runCode(code: code, stdin: Data(), optimize: opt)
-    #expect(output == Data("12345678901\n".utf8))
+    #expect(output == Data("12345678901\n16776978\n65535\n".utf8))
   }
 }
 
@@ -388,22 +394,19 @@ func runCode(code: String, stdin: Data, optimize: Bool) throws -> Data {
 
   let stdoutPipe = Pipe()
   process.standardOutput = stdoutPipe
-  let outputData = CatData()
-  stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-    outputData.add(handle.availableData)
-  }
   defer {
     try! stdoutPipe.fileHandleForReading.close()
   }
 
   try process.run()
   process.waitUntilExit()
+  let finalData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
 
   if process.terminationStatus != 0 {
     throw CompileError.clangError("Program exited with status \(process.terminationStatus)")
   }
 
-  return outputData.finalData
+  return finalData
 }
 
 func compileCode(code: String, tmpDir: URL, optimize: Bool) throws {
@@ -428,6 +431,8 @@ func compileCode(code: String, tmpDir: URL, optimize: Bool) throws {
   try cfg.checkMissingReturns()
 
   let asmCode = try BackendAArch64().compileAssembly(cfg: cfg)
+  let asmCode2 = try BackendAArch64().compileAssembly(cfg: cfg)
+  #expect(asmCode == asmCode2, "non-deterministic output")
 
   let asmPath = tmpDir.appending(component: "program.s").path()
   let binPath = tmpDir.appending(component: "a.out").path()

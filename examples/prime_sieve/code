@@ -1,0 +1,42 @@
+fn sieve(n: int) -> int {
+  primes: str = str_alloc(n)
+  i: int = 0
+  while? (lt(i, n)) {
+    str_set(primes, i, 1)
+    i = add(i, 1)
+  }
+  p: int = 2
+  while? (lt(mul(p, p), n)) {
+    if? (eq(str_get(primes, p), 1)) {
+      j: int = mul(p, p)
+      while? (lt(j, n)) {
+        str_set(primes, j, 0)
+        j = add(j, p)
+      }
+    }
+    p = add(p, 1)
+  }
+  count: int = 0
+  i = 2
+  while? (lt(i, n)) {
+    if? (eq(str_get(primes, i), 1)) {
+      count = add(count, 1)
+    }
+    i = add(i, 1)
+  }
+  return!(count)
+}
+
+fn main() -> int {
+  limit: int = 50000000
+  print("counting primes up to ")
+  print_int(limit)
+  println("")
+
+  c: int = sieve(50000000)
+  print("answer: ")
+  print_int(c)
+  println("")
+
+  return!(0)
+}

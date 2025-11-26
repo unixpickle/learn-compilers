@@ -32,7 +32,7 @@ public struct BackendAArch64: Backend {
 
   public typealias StackVarIdx = Int
 
-  public enum VarPlacement {
+  public enum VarPlacement: Equatable {
     case register(Register)
     case stack(StackVarIdx)
   }
@@ -169,7 +169,7 @@ public struct BackendAArch64: Backend {
 
     public func encode() -> String {
       var result = ""
-      for (bytes, id) in strToID {
+      for (bytes, id) in strToID.sorted(by: { $0.value < $1.value }) {
         result += ".p2align 4\n"
         result += "str_const_\(id):\n"
         result += "  .quad \(bytes.count)\n"
@@ -234,7 +234,12 @@ public struct BackendAArch64: Backend {
   public func compileAssembly(cfg: CFG) throws -> String {
     let liveness = Liveness(cfg: cfg)
     var strTable = StringTable()
-    var results = try cfg.functions.keys.flatMap {
+    let sortedFuncs = cfg.functions.keys.sorted { (fn1, fn2) in
+      let name1 = symbolName(fn: fn1)
+      let name2 = symbolName(fn: fn2)
+      return name1 < name2
+    }
+    var results = try sortedFuncs.flatMap {
       try compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
     }
     results.append(contentsOf: Self.strSetCode)
@@ -312,7 +317,7 @@ public struct BackendAArch64: Backend {
       return header + bodyCode + tail
     }
 
-    return prologue + allNodeCode + epilogue
+    return optimizeInstructions(prologue + allNodeCode + epilogue)
   }
 
   internal func calculateFrame(cfg: CFG, liveness: Liveness, fn: Function) throws -> Frame {
@@ -326,6 +331,7 @@ public struct BackendAArch64: Backend {
     let varColors = color(
       graph: interference,
       affinity: affinity,
+      order: cfg.orderedVariables,
       algorithm: graphColorAlgorithm
     )
     let colorCount = 1 + (varColors.values.max() ?? -1)
@@ -416,7 +422,6 @@ public struct BackendAArch64: Backend {
     switch builtIn {
     case .strAlloc: return true
     case .strFree: return true
-    case .strGet: return true
     case .strSet: return true
     case .putc: return true
     case .getc: return true
@@ -608,7 +613,32 @@ public struct BackendAArch64: Backend {
       case .strAlloc:
         symbol = "_str_alloc"
       case .strGet:
-        symbol = "_str_get"
+        let (instsIn1, regStr) = argumentToRegister(
+          stringTable: &stringTable,
+          frame: frame,
+          argument: args[0],
+          defaultReg: .x(0)
+        )
+        let (instsIn2, regOff) = argumentToRegister(
+          stringTable: &stringTable,
+          frame: frame,
+          argument: args[1],
+          defaultReg: .x(1)
+        )
+        let (instsOut, regOut) = writableVariableRegister(
+          frame: frame,
+          target: target,
+          defaultReg: .x(2)
+        )
+        guard case .x(let regOutIdx) = regOut else {
+          fatalError("unexpected out register \(regOut)")
+        }
+        return instsIn1 + instsIn2 + [
+          .add(.x(0), regStr, .reg(regOff)),
+          .ldrb(.w(1), (.x(0), 8)),
+          .mov(regOut, .int(0)),
+          .mov(.w(regOutIdx), .reg(.w(1))),
+        ] + instsOut
       case .strFree, .strSet, .putc:
         fatalError("cannot assign return of call")
       case .none:
@@ -706,11 +736,14 @@ public struct BackendAArch64: Backend {
       case .constStr(let x):
         phiStrs.append((t, x))
       case .variable(let v):
-        phiMoves.append((t, frame.placement[v]!))
+        let s = frame.placement[v]!
+        if t != s {
+          phiMoves.append((t, s))
+        }
       }
     }
 
-    // CodeLineead of doing an efficient parallel move, for now we will simply push
+    // Instead of doing an efficient parallel move, for now we will simply push
     // all the used variables to the stack and then pop them again.
     if phiMoves.count % 2 == 1 {
       // Add a scratch register so that we keep the stack aligned.
@@ -867,6 +900,25 @@ public struct BackendAArch64: Backend {
       }
     }
     return result
+  }
+
+  internal func optimizeInstructions(_ insts: [CodeLine]) -> [CodeLine] {
+    var insts = insts
+
+    var i = 0
+    while i < insts.count {
+      let inst = insts[i]
+      // Remove `b` instructions when the label comes right after.
+      if case .b(let symbol) = inst, i + 1 < insts.count {
+        if case .symbol(let name) = insts[i + 1], name == symbol {
+          insts.remove(at: i)
+          continue
+        }
+      }
+      i += 1
+    }
+
+    return insts
   }
 
 }

@@ -171,6 +171,23 @@ public struct CFG {
   private var tmpCounter: Int = 0
   private var nodeIDCounter: Int = 0
 
+  /// Get all of the defined variables in a deterministic order.
+  public var orderedVariables: [SSAVariable] {
+    var seen = Set<SSAVariable>()
+    var result = [SSAVariable]()
+    for node in nodes.sorted(by: { $0.id < $1.id }) {
+      for inst in nodeCode[node]!.instructions {
+        for def in inst.op.defs {
+          if !seen.contains(def) {
+            seen.insert(def)
+            result.append(def)
+          }
+        }
+      }
+    }
+    return result
+  }
+
   public init() {
   }
 

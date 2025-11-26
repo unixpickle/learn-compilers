@@ -3,7 +3,6 @@ public struct Liveness {
   public struct VariableGraph: Hashable {
     public typealias V = CFG.SSAVariable
     public var nodes = Set<V>()
-    public var nodesOrdered = [V]()
     public var neighbors = [V: Set<V>]()
 
     public init() {}
@@ -15,9 +14,7 @@ public struct Liveness {
     }
 
     public mutating func insert(node: V) {
-      if nodes.insert(node).inserted {
-        nodesOrdered.append(node)
-      }
+      nodes.insert(node)
     }
 
     public mutating func insertEdge(_ from: V, _ to: V) {
@@ -31,10 +28,10 @@ public struct Liveness {
     }
 
     public mutating func insert(graph: VariableGraph) {
-      for n in graph.nodesOrdered {
+      for n in graph.nodes {
         insert(node: n)
       }
-      for v in graph.nodesOrdered {
+      for v in graph.nodes {
         for v1 in graph.neighbors[v, default: []] {
           insertEdge(v, v1)
         }
@@ -167,6 +164,24 @@ public struct Liveness {
       }
     }
 
+    func finishPhis() {
+      // After all the phis run in parallel, we are left with the current
+      // live set, which interferes with all the phi definitions.
+      for decl in phiDeclarations {
+        for l in live {
+          result.insertEdge(decl, l)
+        }
+
+        // All phi declarations interfere with each other. This should happen
+        // automatically if the SSA is optimized, since any phi which isn't live
+        // by the end of the block of phis is a dead variable, but in the case of
+        // unoptimized SSA, we want to make sure this constraint is still met.
+        for other in phiDeclarations {
+          result.insertEdge(decl, other)
+        }
+      }
+    }
+
     for (i, inst) in cfg.nodeCode[node]!.instructions.enumerated() {
       for v in inst.op.defs + inst.op.uses {
         result.insert(node: v)
@@ -176,13 +191,7 @@ public struct Liveness {
         phiDeclarations.formUnion(inst.op.defs)
       } else {
         if onlySeenPhis {
-          // After all the phis run in parallel, we are left with the current
-          // live set, which interferes with all the phi definitions.
-          for decl in phiDeclarations {
-            for l in live {
-              result.insertEdge(decl, l)
-            }
-          }
+          finishPhis()
         }
         onlySeenPhis = false
       }
@@ -216,11 +225,7 @@ public struct Liveness {
     // If this block only contained phi functions, we never recorded
     // interferences between the live out set and the phi declarations.
     if onlySeenPhis {
-      for decl in phiDeclarations {
-        for l in live {
-          result.insertEdge(decl, l)
-        }
-      }
+      finishPhis()
     }
 
     return result
