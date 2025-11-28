@@ -361,6 +361,218 @@ import Testing
   }
 }
 
+@Test func testBackendAArch64VariablePermutations() throws {
+  let code = """
+    fn permutation(x: str) {
+      a: int = str_get(x, 0)
+      b: int = str_get(x, 1)
+      c: int = str_get(x, 2)
+      d: int = str_get(x, 3)
+      e: int = str_get(x, 4)
+      f: int = str_get(x, 5)
+      g: int = str_get(x, 6)
+      h: int = str_get(x, 7)
+      i: int = str_get(x, 8)
+      j: int = str_get(x, 9)
+      k: int = str_get(x, 10)
+      l: int = str_get(x, 11)
+      m: int = str_get(x, 12)
+      n: int = str_get(x, 13)
+      o: int = str_get(x, 14)
+      p: int = str_get(x, 15)
+      q: int = str_get(x, 16)
+      r: int = str_get(x, 17)
+      s: int = str_get(x, 18)
+      t: int = str_get(x, 19)
+      u: int = str_get(x, 20)
+      v: int = str_get(x, 21)
+      w: int = str_get(x, 22)
+
+      while? (1) {
+        perm: int = getc()
+        if? (lt(perm, 0)) {
+          break!()
+        }
+        perm = sub(perm, 48)
+        if? (eq(perm, 0)) {
+          tmp: int = a
+          a = b
+          b = tmp
+
+          tmp = c
+          c = d
+          d = tmp
+
+          tmp = e
+          e = f
+          f = tmp
+
+          tmp = g
+          g = h
+          h = tmp
+
+          tmp = i
+          i = j
+          j = tmp
+
+          tmp = k
+          k = l
+          l = tmp
+
+          tmp = m
+          m = n
+          n = tmp
+
+          tmp = o
+          o = p
+          p = tmp
+
+          tmp = q
+          q = r
+          r = tmp
+
+          tmp = s
+          s = t
+          t = tmp
+
+          tmp = u
+          u = v
+          v = tmp
+        }
+        if? (eq(perm, 1)) {
+          tmp: int = a
+          a = b
+          b = c
+          c = tmp
+
+          tmp = d
+          d = e
+          e = f
+          f = tmp
+
+          tmp = g
+          g = h
+          h = i
+          i = tmp
+
+          tmp = j
+          j = k
+          k = l
+          l = tmp
+
+          tmp = m
+          m = n
+          n = o
+          o = tmp
+
+          tmp = p
+          p = q
+          q = r
+          r = tmp
+
+          tmp = s
+          s = t
+          t = u
+          u = tmp
+        }
+        if? (eq(perm, 2)) {
+          tmp: int = a
+          a = b
+          b = c
+          c = d
+          d = e
+          e = f
+          f = g
+          g = h
+          h = i
+          i = j
+          j = k
+          k = l
+          l = m
+          m = n
+          n = o
+          o = p
+          p = q
+          q = r
+          r = s
+          s = t
+          t = u
+          u = v
+          v = w
+          w = tmp
+        }
+      }
+
+      str_set(x, 0, a)
+      str_set(x, 1, b)
+      str_set(x, 2, c)
+      str_set(x, 3, d)
+      str_set(x, 4, e)
+      str_set(x, 5, f)
+      str_set(x, 6, g)
+      str_set(x, 7, h)
+      str_set(x, 8, i)
+      str_set(x, 9, j)
+      str_set(x, 10, k)
+      str_set(x, 11, l)
+      str_set(x, 12, m)
+      str_set(x, 13, n)
+      str_set(x, 14, o)
+      str_set(x, 15, p)
+      str_set(x, 16, q)
+      str_set(x, 17, r)
+      str_set(x, 18, s)
+      str_set(x, 19, t)
+      str_set(x, 20, u)
+      str_set(x, 21, v)
+      str_set(x, 22, w)
+    }
+
+    fn main() -> int {
+      result: str = str_copy("abcdefghijklmnopqrstuvw\\n")
+      permutation(result)
+      print(result)
+      str_free(result)
+      return!(0)
+    }
+    """
+
+  func applyPerm(data: Data, op: Character) -> Data {
+    var newData = data
+    switch op {
+    case Character("0"):
+      for x in 0..<(newData.count / 2) {
+        let i = x * 2
+        (newData[i], newData[i + 1]) = (data[i + 1], data[i])
+      }
+    case Character("1"):
+      for x in 0..<(newData.count / 3) {
+        let i = x * 3
+        (newData[i], newData[i + 1], newData[i + 2]) = (data[i + 1], data[i + 2], data[i])
+      }
+    case Character("2"):
+      for i in 0..<data.count {
+        newData[i] = data[(i + 1) % data.count]
+      }
+    default: fatalError()
+    }
+    return newData
+  }
+
+  let input = "012020222"
+  var expectedOutput = Data("abcdefghijklmnopqrstuvw".utf8)
+  for op in input {
+    expectedOutput = applyPerm(data: expectedOutput, op: op)
+  }
+  expectedOutput += Data("\n".utf8)
+
+  for opt in [false, true] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+    #expect(
+      output == expectedOutput, "output is \(Array(output)), expected \(Array(expectedOutput))")
+  }
+}
+
 enum CompileError: Error {
   case clangError(String)
 }

@@ -4,7 +4,7 @@ public struct BackendAArch64: Backend {
     case stackOverflow(String)
   }
 
-  public enum Register: CustomStringConvertible, Equatable, Sendable {
+  public enum Register: CustomStringConvertible, Hashable, Sendable {
     case x(Int)
     case w(Int)
     case sp
@@ -32,7 +32,7 @@ public struct BackendAArch64: Backend {
 
   public typealias StackVarIdx = Int
 
-  public enum VarPlacement: Equatable {
+  public enum VarPlacement: Hashable {
     case register(Register)
     case stack(StackVarIdx)
   }
@@ -743,49 +743,28 @@ public struct BackendAArch64: Backend {
       }
     }
 
-    // Instead of doing an efficient parallel move, for now we will simply push
-    // all the used variables to the stack and then pop them again.
-    if phiMoves.count % 2 == 1 {
-      // Add a scratch register so that we keep the stack aligned.
-      // Don't use x0 or x1 because they might be used
-      // as scratch registers for stack variables.
-      phiMoves.append((.register(.x(8)), .register(.x(8))))
-    }
-
-    if (phiMoves.count * 8) >= 0x10000 {
-      fatalError("too many phi moves; should have already been caught by stack overflow")
-    }
-
     var result = [CodeLine]()
+
     if !phiMoves.isEmpty {
-      result.append(.sub(.sp, .sp, .int(UInt16(phiMoves.count * 8))))
-      for i in stride(from: 0, to: phiMoves.count, by: 2) {
-        let (_, source1) = phiMoves[i]
-        let (_, source2) = phiMoves[i + 1]
-
-        let (code1, arg1) = variableToRegister(frame: frame, placement: source1, defaultReg: .x(0))
-        let (code2, arg2) = variableToRegister(frame: frame, placement: source2, defaultReg: .x(1))
-
-        result.append(contentsOf: code1)
-        result.append(contentsOf: code2)
-        result.append(CodeLine.stp(arg1, arg2, (.sp, i * 8)))
+      let encodedMoves = MoveOp.encodeParallelMove(phiMoves)
+      for op in encodedMoves {
+        switch op {
+        case .saveTmp(let src):
+          let (insts, reg) = variableToRegister(frame: frame, placement: src, defaultReg: .x(8))
+          result.append(contentsOf: insts)
+          if reg != .x(8) {
+            result.append(.mov(.x(8), .reg(reg)))
+          }
+        case .loadTmp(let dst):
+          result.append(contentsOf: registerToVariable(frame: frame, placement: dst, source: .x(8)))
+        case .move(let dst, let src):
+          let (insts, reg) = variableToRegister(frame: frame, placement: src, defaultReg: .x(0))
+          result.append(contentsOf: insts)
+          result.append(contentsOf: registerToVariable(frame: frame, placement: dst, source: reg))
+        }
       }
-      for i in stride(from: 0, to: phiMoves.count, by: 2) {
-        let (target1, _) = phiMoves[i]
-        let (target2, _) = phiMoves[i + 1]
-
-        let (writeback1, reg1) = writableVariableRegister(
-          frame: frame, placement: target1, defaultReg: .x(0)
-        )
-        let (writeback2, reg2) = writableVariableRegister(
-          frame: frame, placement: target2, defaultReg: .x(1)
-        )
-        result.append(.ldp(reg1, reg2, (.sp, i * 8)))
-        result.append(contentsOf: writeback1)
-        result.append(contentsOf: writeback2)
-      }
-      result.append(.add(.sp, .sp, .int(UInt16(phiMoves.count * 8))))
     }
+
     for (target, sourceValue) in phiConsts {
       let (code, reg) = writableVariableRegister(frame: frame, placement: target)
       result.append(contentsOf: encodeConstantMov(target: reg, value: sourceValue))
@@ -882,7 +861,15 @@ public struct BackendAArch64: Backend {
     target: CFG.SSAVariable,
     source: Register
   ) -> [CodeLine] {
-    switch frame.placement[target]! {
+    registerToVariable(frame: frame, placement: frame.placement[target]!, source: source)
+  }
+
+  internal func registerToVariable(
+    frame: Frame,
+    placement: VarPlacement,
+    source: Register
+  ) -> [CodeLine] {
+    switch placement {
     case .register(let r):
       source == r ? [] : [.mov(r, .reg(source))]
     case .stack(let idx):
