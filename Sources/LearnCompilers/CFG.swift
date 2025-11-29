@@ -463,14 +463,13 @@ public struct CFG {
   /// Perform a depth-first search from a given node and return the DFS-ordered
   /// list of discovered nodes (including the node itself).
   public func dfsFrom(node: Node) -> [Node] {
-    var nodeSet: Set<Node> = [node]
-    var nodeArr = [node]
+    var nodeArr = [Node]()
+    var queueSeen: Set<Node> = [node]
     var queue = [node]
     while let n = queue.popLast() {
-      for succ in successors(of: n).reversed() {
-        if !nodeSet.contains(succ) {
-          nodeSet.insert(succ)
-          nodeArr.append(succ)
+      nodeArr.append(n)
+      for succ in successors(of: n) {
+        if queueSeen.insert(succ).inserted {
           queue.append(succ)
         }
       }

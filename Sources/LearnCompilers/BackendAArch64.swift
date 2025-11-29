@@ -204,26 +204,6 @@ public struct BackendAArch64: Backend {
     .ret,
   ]
 
-  public static let strGetCode: [CodeLine] = [
-    .globl("_str_get"),
-    .alignPow2(2),
-    .symbol("_str_get"),
-    .add(.x(0), .x(0), .reg(.x(1))),
-    .ldrb(.w(1), (.x(0), 8)),
-    .mov(.x(0), .int(0)),
-    .mov(.w(0), .reg(.w(1))),
-    .ret,
-  ]
-
-  public static let strSetCode: [CodeLine] = [
-    .globl("_str_set"),
-    .alignPow2(2),
-    .symbol("_str_set"),
-    .add(.x(0), .x(0), .reg(.x(1))),
-    .strb(.w(2), (.x(0), 8)),
-    .ret,
-  ]
-
   public let graphColorAlgorithm: GraphColorAlgorithm
 
   public init(graphColorAlgorithm: GraphColorAlgorithm = .greedy) {
@@ -242,8 +222,6 @@ public struct BackendAArch64: Backend {
     var results = try sortedFuncs.flatMap {
       try compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
     }
-    results.append(contentsOf: Self.strSetCode)
-    results.append(contentsOf: Self.strGetCode)
     results.append(contentsOf: Self.allocStrCode)
     var out = results.map { $0.code }.joined(separator: "\n")
     let constStr = strTable.encode()
@@ -422,7 +400,6 @@ public struct BackendAArch64: Backend {
     switch builtIn {
     case .strAlloc: return true
     case .strFree: return true
-    case .strSet: return true
     case .putc: return true
     case .getc: return true
     default: return false
@@ -528,24 +505,47 @@ public struct BackendAArch64: Backend {
       }
     case .call(let fn, let args):
       if let builtIn = fn.builtIn {
-        if case .putc = builtIn {
+        switch builtIn {
+        case .putc:
           return encodeFunctionCall(
             stringTable: &stringTable, frame: frame, symbol: "_putchar", args: args
           )
-        } else if case .strFree = builtIn {
+        case .strFree:
           return encodeFunctionCall(
             stringTable: &stringTable, frame: frame, symbol: "_free", args: args
           )
-        } else if case .strSet = builtIn {
-          return encodeFunctionCall(
-            stringTable: &stringTable, frame: frame, symbol: "_str_set", args: args
-          )
-        } else if case .getc = builtIn {
+        case .getc:
           return encodeFunctionCall(
             stringTable: &stringTable, frame: frame, symbol: "_getchar", args: args
           )
+        case .strSet:
+          let (instsIn1, regStr) = argumentToRegister(
+            stringTable: &stringTable,
+            frame: frame,
+            argument: args[0],
+            defaultReg: .x(0)
+          )
+          let (instsIn2, regOff) = argumentToRegister(
+            stringTable: &stringTable,
+            frame: frame,
+            argument: args[1],
+            defaultReg: .x(1)
+          )
+          let (instsIn3, regValue) = argumentToRegister(
+            stringTable: &stringTable,
+            frame: frame,
+            argument: args[2],
+            defaultReg: .x(2)
+          )
+          guard case .x(let regValueIdx) = regValue else {
+            fatalError("unexpected out register \(regValue)")
+          }
+          return instsIn1 + instsIn2 + instsIn3 + [
+            .add(.x(0), regStr, .reg(regOff)),
+            .strb(.w(regValueIdx), (.x(0), 8)),
+          ]
+        default: return []
         }
-        return []
       }
       return encodeFunctionCall(
         stringTable: &stringTable, frame: frame, symbol: symbolName(fn: fn), args: args
@@ -583,15 +583,15 @@ public struct BackendAArch64: Backend {
         }
       case .lt:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "lt")]
+          [.cmp(a, .reg(b)), .cset(dst, "lt")]
         }
       case .gt:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "gt")]
+          [.cmp(a, .reg(b)), .cset(dst, "gt")]
         }
       case .eqInt:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .mov(dst, .int(0)), .cset(dst, "eq")]
+          [.cmp(a, .reg(b)), .cset(dst, "eq")]
         }
       case .notInt:
         let (instsIn, source) = argumentToRegister(
@@ -635,9 +635,7 @@ public struct BackendAArch64: Backend {
         }
         return instsIn1 + instsIn2 + [
           .add(.x(0), regStr, .reg(regOff)),
-          .ldrb(.w(1), (.x(0), 8)),
-          .mov(regOut, .int(0)),
-          .mov(.w(regOutIdx), .reg(.w(1))),
+          .ldrb(.w(regOutIdx), (.x(0), 8)),
         ] + instsOut
       case .strFree, .strSet, .putc:
         fatalError("cannot assign return of call")
