@@ -598,7 +598,7 @@ public struct BackendAArch64: Backend {
           stringTable: &stringTable, frame: frame, argument: args[0], defaultReg: .x(0)
         )
         let (instsOut, dst) = writableVariableRegister(frame: frame, target: target)
-        return instsIn + [.cmp(source, .int(0)), .mov(dst, .int(0)), .cset(dst, "eq")] + instsOut
+        return instsIn + [.cmp(source, .int(0)), .cset(dst, "eq")] + instsOut
       case .len:
         let (instsIn, reg) = argumentToRegister(
           stringTable: &stringTable,

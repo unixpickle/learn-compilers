@@ -573,6 +573,82 @@ import Testing
   }
 }
 
+@Test func testBackendAArch64Comparisons() throws {
+  let code = """
+    fn main() -> int {
+      while? (1) {
+        ch1: int = getc()
+        ch2: int = getc()
+        if? (lt(ch1, 0)) {
+          break!()
+        }
+
+        if? (lt(ch1, ch2)) {
+          println("lt")
+        }
+        if? (gt(ch1, ch2)) {
+          println("gt")
+        }
+        if? (eq(ch1, ch2)) {
+          println("eq")
+        }
+
+        x: int = lt(ch1, ch2)
+        y: int = gt(ch1, ch2)
+        z: int = eq(ch1, ch2)
+        print_int(x)
+        print_int(y)
+        print_int(z)
+        println("")
+
+        ch2 = add(48, 5)
+        if? (lt(ch1, ch2)) {
+          println("lt 5")
+        }
+        if? (gt(ch1, ch2)) {
+          println("gt 5")
+        }
+        if? (eq(ch1, ch2)) {
+          println("eq 5")
+        }
+
+        x = lt(ch1, ch2)
+        y = gt(ch1, ch2)
+        z = eq(ch1, ch2)
+        if? (x) {
+          println("lt 5")
+        }
+        if? (y) {
+          println("gt 5")
+        }
+        if? (z) {
+          println("eq 5")
+        }
+        print_int(x)
+        print_int(y)
+        print_int(z)
+        println("")
+      }
+
+      return!(0)
+    }
+    """
+
+  let input = "01770550"
+  let expectedOutput = Data(
+    "lt\n100\nlt 5\nlt 5\n100\neq\n001\ngt 5\ngt 5\n010\nlt\n100\nlt 5\nlt 5\n100\ngt\n010\neq 5\neq 5\n001\n"
+      .utf8
+  )
+
+  for opt in [false, true] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+    #expect(
+      output == expectedOutput,
+      "output is \(Array(output)), expected \(Array(expectedOutput))"
+    )
+  }
+}
+
 enum CompileError: Error {
   case clangError(String)
 }
