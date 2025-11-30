@@ -118,16 +118,14 @@ fn run_bf(program: str) {
     op: int = str_get(program, pc)
     is_command: int = 0
 
-    if? (eq(op, 62)) {
-      comment("'>'")
+    if? (eq(op, str_get(">", 0))) {
       is_command = 1
       dp = add(dp, 1)
       tape = ensure_tape_capacity(tape, dp)
       pc = add(pc, 1)
     }
 
-    if? (eq(op, 60)) {
-      comment("'<'")
+    if? (eq(op, str_get("<", 0))) {
       is_command = 1
       dp = sub(dp, 1)
       if? (lt(dp, 0)) {
@@ -136,8 +134,7 @@ fn run_bf(program: str) {
       pc = add(pc, 1)
     }
 
-    if? (eq(op, 43)) {
-      comment("'+'")
+    if? (eq(op, str_get("+", 0))) {
       is_command = 1
       cur: int = str_get(tape, dp)
       cur = cell_inc(cur)
@@ -145,8 +142,7 @@ fn run_bf(program: str) {
       pc = add(pc, 1)
     }
 
-    if? (eq(op, 45)) {
-      comment("'-'")
+    if? (eq(op, str_get("-", 0))) {
       is_command = 1
       cur: int = str_get(tape, dp)
       cur = cell_dec(cur)
@@ -154,15 +150,13 @@ fn run_bf(program: str) {
       pc = add(pc, 1)
     }
 
-    if? (eq(op, 46)) {
-      comment("'.'")
+    if? (eq(op, str_get(".", 0))) {
       is_command = 1
       putc(str_get(tape, dp))
       pc = add(pc, 1)
     }
 
-    if? (eq(op, 91)) {
-      comment("'['")
+    if? (eq(op, str_get("[", 0))) {
       is_command = 1
       cur: int = str_get(tape, dp)
       if? (eq(cur, 0)) {
@@ -180,8 +174,7 @@ fn run_bf(program: str) {
       }
     }
 
-    if? (eq(op, 93)) {
-      comment("']'")
+    if? (eq(op, str_get("]", 0))) {
       is_command = 1
       cur2: int = str_get(tape, dp)
       if? (eq(cur2, 0)) {

@@ -155,6 +155,12 @@ public enum BuiltInFunction: Hashable, Sendable {
       if case .constInt(let x) = args[0] {
         return .constInt(x == 0 ? 1 : 0)
       }
+    case .strGet:
+      if case .constStr(let x) = args[0], case .constInt(let idx) = args[1],
+        idx >= 0 && idx < x.count
+      {
+        return .constInt(Int64(x[Int(idx)]))
+      }
     default: ()
     }
     return nil

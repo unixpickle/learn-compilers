@@ -215,9 +215,7 @@ public struct BackendAArch64: Backend {
     let liveness = Liveness(cfg: cfg)
     var strTable = StringTable()
     let sortedFuncs = cfg.functions.keys.sorted { (fn1, fn2) in
-      let name1 = symbolName(fn: fn1)
-      let name2 = symbolName(fn: fn2)
-      return name1 < name2
+      cfg.functions[fn1]!.id < cfg.functions[fn2]!.id
     }
     var results = try sortedFuncs.flatMap {
       try compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)

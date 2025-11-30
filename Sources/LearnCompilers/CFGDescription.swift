@@ -51,18 +51,45 @@ extension CFG: CustomStringConvertible {
 
 }
 
+extension CFG.Inst: CustomStringConvertible {
+  public var description: String {
+    op.description
+  }
+}
+
 extension CFG.Inst.Op: CustomStringConvertible {
   public var description: String {
     switch self {
-    case .funcArg(let v, let idx): ".funcArg(\(v), \(idx))"
+    case .funcArg(let v, let idx): ".funcArg(target=\(v), idx=\(idx))"
     case .check(let arg): ".check(\(arg))"
-    case .copy(let target, let source): ".copy(\(target), \(source))"
-    case .call(let fn, let args): ".call(\(fn), \(args))"
-    case .callAndStore(let target, let fn, let args): ".callAndStore(\(target), \(fn), \(args))"
-    case .returnValue(let arg): ".returnValue\(arg)"
+    case .copy(let target, let source): ".copy(target=\(target), source=\(source))"
+    case .call(let fn, let args): ".call(\(fn), args=\(args))"
+    case .callAndStore(let target, let fn, let args):
+      ".callAndStore(\(target), \(fn), args=\(args))"
+    case .returnValue(let arg): ".returnValue(\(arg))"
     case .returnVoid: ".returnVoid"
     case .phi(let target, let branches):
-      ".phi(\(target), \(branches.sorted(by: { $0.key.id < $1.key.id })))"
+      ".phi(\(target), branches=\(branches.sorted(by: { $0.key.id < $1.key.id })))"
+    }
+  }
+}
+
+extension CFG.Argument: CustomStringConvertible {
+  public var description: String {
+    switch self {
+    case .constInt(let x): ".constInt(\(x))"
+    case .constStr(let x): ".constStr(\(x))"
+    case .variable(let v): ".variable(\(v))"
+    }
+  }
+}
+
+extension CFG.SSAVariable: CustomStringConvertible {
+  public var description: String {
+    if let v = version {
+      "SSAVariable(\(variable), version=\(v))"
+    } else {
+      "SSAVariable(\(variable), version=nil)"
     }
   }
 }
