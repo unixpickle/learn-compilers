@@ -1,7 +1,3 @@
-public enum SSAError: Error {
-  case missingReturn(Position)
-}
-
 public struct CFG {
 
   public struct SSAVariable: Hashable {

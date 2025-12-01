@@ -602,17 +602,17 @@ public struct AST: ASTNode {
       let input = Array(text.utf8)
       var result = [UInt8]()
       var i = 1
-      while i < input.count-1 {
+      while i < input.count - 1 {
         let ch = input[i]
         if ch == 0x5c {
           // This is an escape sequence
-          let next = input[i+1]
+          let next = input[i + 1]
           if next == 0x6e {
-            result.append(0x0a) // \n
+            result.append(0x0a)  // \n
           } else if next == 0x5c {
-            result.append(0x5c) // \\
+            result.append(0x5c)  // \\
           } else if next == 0x22 {
-            result.append(0x22) // \"
+            result.append(0x22)  // \"
           }
           i += 1
         } else {

@@ -176,60 +176,6 @@ public struct ScopeTable {
   }
 }
 
-public protocol ASTDecorationError: Error {
-  var position: Position { get }
-}
-
-public enum VariableResolutionError: ASTDecorationError {
-  case notDefined(Position, String)
-  case redefined(original: Position, newPosition: Position, name: String)
-
-  public var position: Position {
-    switch self {
-    case .notDefined(let p, _): p
-    case .redefined(_, let p, _): p
-    }
-  }
-}
-
-public enum FuncResolutionError: ASTDecorationError {
-  case redefined(
-    original: Position,
-    newPosition: Position,
-    name: String,
-    oldSignature: Function.Signature,
-    newSignature: Function.Signature
-  )
-
-  public var position: Position {
-    switch self {
-    case .redefined(_, let p, _, _, _): p
-    }
-  }
-}
-
-public enum TypeAndControlFlowError: ASTDecorationError {
-  case breakOutsideOfLoop(Position)
-  case incorrectType(
-    position: Position, expectedType: Variable.DataType, actualType: Variable.DataType
-  )
-  case unknownFunction(position: Position, name: String, argTypes: [Variable.DataType])
-  case missingValue(position: Position)
-  case returnWithTypeFromVoidFunction(position: Position)
-  case returnWithVoidFromTypedFunction(position: Position, expectedType: Variable.DataType)
-
-  public var position: Position {
-    switch self {
-    case .breakOutsideOfLoop(let p): p
-    case .incorrectType(let p, _, _): p
-    case .unknownFunction(let p, _, _): p
-    case .missingValue(let p): p
-    case .returnWithTypeFromVoidFunction(let p): p
-    case .returnWithVoidFromTypedFunction(let p, _): p
-    }
-  }
-}
-
 private enum InsertingScopesOp {
   case expand(Scope?, ASTNode)
   case finish(Scope?, ASTNode, Int)

@@ -76,12 +76,19 @@ public struct BackendAArch64: Backend {
     case bEq(String)
     case ret
 
+    case cfiStartProc
+    case cfiEndProc
+    case cfiDefCFA(Register, Int)
+    case cfiOffset(Register, Int)
+
+    case comment(String)
+
     var code: String {
       switch self {
       case .globl(let name):
-        return ".globl \(name)"
+        return "  .globl \(name)"
       case .alignPow2(let n):
-        return ".p2align \(n)"
+        return "  .p2align \(n)"
       case .symbol(let name):
         return "\(name):"
       case .mov(let target, let source):
@@ -132,6 +139,16 @@ public struct BackendAArch64: Backend {
         return "  b.eq \(label)"
       case .ret:
         return "  ret"
+      case .cfiStartProc:
+        return "  .cfi_startproc"
+      case .cfiEndProc:
+        return "  .cfi_endproc"
+      case .cfiDefCFA(let reg, let x):
+        return "  .cfi_def_cfa \(reg), \(x)"
+      case .cfiOffset(let reg, let x):
+        return "  .cfi_offset \(reg), \(x)"
+      case .comment(let x):
+        return "  ; \(x)"
       }
     }
   }
@@ -181,33 +198,43 @@ public struct BackendAArch64: Backend {
     }
   }
 
-  public static let allocStrCode: [CodeLine] = [
+  public static let strAllocCode: [CodeLine] = [
     .globl("_str_alloc"),
     .alignPow2(2),
     .symbol("_str_alloc"),
+    .cfiStartProc,
     // Stack frame
     .sub(.sp, .sp, .int(32)),
     .stp(.x(29), .x(30), (.sp, 16)),
     .add(.x(29), .sp, .int(16)),
+    .cfiDefCFA(.x(29), 16),
+    .cfiOffset(.x(30), -8),
+    .cfiOffset(.x(29), -16),
     // Backup callee-saved registers
-    .stp(.x(19), .x(20), (.sp, 0)),
+    .stp(.x(19), .x(20), (.x(29), -16)),
     // Allocate buffer and store length into it
     .mov(.x(19), .reg(.x(0))),
     .add(.x(0), .x(19), .int(8)),
     .bl("_malloc"),
     .str(.x(19), (Register.x(0), 0)),
     // Restore callee-saved registers
-    .ldp(.x(19), .x(20), (.sp, 0)),
+    .ldp(.x(19), .x(20), (.x(29), -16)),
     // Exit stack frame
     .ldp(.x(29), .x(30), (.sp, 16)),
     .add(.sp, .sp, .int(32)),
     .ret,
+    .cfiEndProc,
   ]
 
   public let graphColorAlgorithm: GraphColorAlgorithm
+  public let includeComments: Bool
 
-  public init(graphColorAlgorithm: GraphColorAlgorithm = .greedy) {
+  public init(
+    graphColorAlgorithm: GraphColorAlgorithm = .greedy,
+    includeComments: Bool = true
+  ) {
     self.graphColorAlgorithm = graphColorAlgorithm
+    self.includeComments = includeComments
   }
 
   /// Compile the graph as AArch64 assembly code.
@@ -220,7 +247,7 @@ public struct BackendAArch64: Backend {
     var results = try sortedFuncs.flatMap {
       try compileFunction(cfg: cfg, stringTable: &strTable, liveness: liveness, fn: $0)
     }
-    results.append(contentsOf: Self.allocStrCode)
+    results.append(contentsOf: Self.strAllocCode)
     var out = results.map { $0.code }.joined(separator: "\n")
     let constStr = strTable.encode()
     if !constStr.isEmpty {
@@ -243,6 +270,9 @@ public struct BackendAArch64: Backend {
     let allNodeCode = cfg.dfsFrom(node: entrypoint).flatMap { node in
       var bodyCode = [CodeLine]()
       for inst in cfg.nodeCode[node]!.instructions {
+        if includeComments {
+          bodyCode.append(.comment("instruction: \(inst)"))
+        }
         bodyCode.append(
           contentsOf: encodeInstruction(
             cfg: cfg,
@@ -252,17 +282,18 @@ public struct BackendAArch64: Backend {
           )
         )
       }
-      let header = [CodeLine.symbol("cfg_node_\(node.id)")]
+      let header = [CodeLine.symbol("Lcfg_node_\(node.id)")]
       var tail = [CodeLine]()
       switch cfg.successors[node] {
       case .single(let nextNode):
         let phiCode = encodeParallelPhi(
           cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: nextNode
         )
-        if !phiCode.isEmpty {
-          tail.append(contentsOf: phiCode)
+        if !phiCode.isEmpty && includeComments {
+          tail.append(.comment("phi parallel move before single branch"))
         }
-        tail.append(.b("cfg_node_\(nextNode.id)"))
+        tail.append(contentsOf: phiCode)
+        tail.append(.b("Lcfg_node_\(nextNode.id)"))
       case .branch(let ifFalse, let ifTrue):
         let falsePhiCode = encodeParallelPhi(
           cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: ifFalse
@@ -270,20 +301,26 @@ public struct BackendAArch64: Backend {
         let truePhiCode = encodeParallelPhi(
           cfg: cfg, stringTable: &stringTable, frame: frame, from: node, to: ifTrue
         )
-        var falseSymbol = "cfg_node_\(ifFalse.id)"
-        var trueSymbol = "cfg_node_\(ifTrue.id)"
+        var falseSymbol = "Lcfg_node_\(ifFalse.id)"
+        var trueSymbol = "Lcfg_node_\(ifTrue.id)"
         var postTail = [CodeLine]()
         if !falsePhiCode.isEmpty {
-          falseSymbol = "cfg_node_\(node.id)_false"
+          falseSymbol = "Lcfg_node_\(node.id)_false"
           postTail.append(.symbol(falseSymbol))
+          if includeComments {
+            postTail.append(.comment("phi parallel move"))
+          }
           postTail.append(contentsOf: falsePhiCode)
-          postTail.append(.b("cfg_node_\(ifFalse.id)"))
+          postTail.append(.b("Lcfg_node_\(ifFalse.id)"))
         }
         if !truePhiCode.isEmpty {
-          trueSymbol = "cfg_node_\(node.id)_true"
+          trueSymbol = "Lcfg_node_\(node.id)_true"
           postTail.append(.symbol(trueSymbol))
+          if includeComments {
+            postTail.append(.comment("phi parallel move"))
+          }
           postTail.append(contentsOf: truePhiCode)
-          postTail.append(.b("cfg_node_\(ifTrue.id)"))
+          postTail.append(.b("Lcfg_node_\(ifTrue.id)"))
         }
         tail.append(.bEq(falseSymbol))
         tail.append(.b(trueSymbol))
@@ -422,9 +459,13 @@ public struct BackendAArch64: Backend {
       .globl(symbolName),
       .alignPow2(2),
       .symbol(symbolName),
+      .cfiStartProc,
       .sub(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))),
       .stp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)),
       .add(.x(29), .sp, .int(UInt16(frame.stackAllocation * 8))),
+      .cfiDefCFA(.x(29), 16),
+      .cfiOffset(.x(30), -8),
+      .cfiOffset(.x(29), -16),
     ]
     for (reg, addr) in frame.backupRegisterAddresses() {
       result.append(.str(reg, addr))
@@ -441,6 +482,7 @@ public struct BackendAArch64: Backend {
     result.append(.ldp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)))
     result.append(.add(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))))
     result.append(.ret)
+    result.append(.cfiEndProc)
     return result
   }
 

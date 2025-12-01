@@ -17,16 +17,23 @@ struct CompileApp {
     do {
       let inputData = try String(contentsOfFile: inputPath, encoding: .utf8)
 
-      let match = try Parser.parse(inputData)
+      let match: ASTMatch
+      do {
+        match = try Parser.parse(inputData)
+      } catch {
+        print("Compilation failed with error:")
+        print(formatParseError(filename: inputPath, error))
+        exit(1)
+      }
       var ast = AST(match: match)
 
       var table = ScopeTable()
       table.addStandardLibrary()
       var errors: [ASTDecorationError]
-      (ast, errors) = ast.decorated(table: &table, fileID: "stdin")
+      (ast, errors) = ast.decorated(table: &table, fileID: inputPath)
 
       if !errors.isEmpty {
-        print("Multiple compile errors:")
+        print("Compilation failed with error(s):")
         for error in errors {
           print("\(error)")
         }
@@ -42,7 +49,8 @@ struct CompileApp {
       let outputString = try BackendAArch64().compileAssembly(cfg: cfg)
       try outputString.write(toFile: outputPath, atomically: true, encoding: .utf8)
     } catch {
-      print("Error: \(error)")
+      print("Compilation failed with error:")
+      print(error)
       exit(1)
     }
   }
