@@ -213,7 +213,7 @@ internal func codeToCFGs(_ code: String, opt: OptLevel, count: Int) throws -> [C
 
   return try (0..<count).map { _ in
     var cfg = CFG(ast: ast)
-    cfg.add(ast: StandardLibrary.ast)
+    cfg.add(ast: StandardLibrary.ast, omitUnused: true)
     cfg.insertPhiAndNumberVars()
     if opt != .none {
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)

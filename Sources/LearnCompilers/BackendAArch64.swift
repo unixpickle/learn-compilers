@@ -74,6 +74,9 @@ public struct BackendAArch64: Backend {
     case b(String)
     case bl(String)
     case bEq(String)
+    case bNe(String)
+    case bGe(String)
+    case bLe(String)
     case ret
 
     case cfiStartProc
@@ -137,6 +140,12 @@ public struct BackendAArch64: Backend {
         return "  bl \(label)"
       case .bEq(let label):
         return "  b.eq \(label)"
+      case .bNe(let label):
+        return "  b.ne \(label)"
+      case .bGe(let label):
+        return "  b.ge \(label)"
+      case .bLe(let label):
+        return "  b.le \(label)"
       case .ret:
         return "  ret"
       case .cfiStartProc:
@@ -229,6 +238,8 @@ public struct BackendAArch64: Backend {
   public let graphColorAlgorithm: GraphColorAlgorithm
   public let includeComments: Bool
 
+  private let comparisons = Comparisons()
+
   public init(
     graphColorAlgorithm: GraphColorAlgorithm = .greedy,
     includeComments: Bool = true
@@ -239,6 +250,7 @@ public struct BackendAArch64: Backend {
 
   /// Compile the graph as AArch64 assembly code.
   public func compileAssembly(cfg: CFG) throws -> String {
+    let cfg = comparisons.translateOps(cfg: cfg)
     let liveness = Liveness(cfg: cfg)
     var strTable = StringTable()
     let sortedFuncs = cfg.functions.keys.sorted { (fn1, fn2) in
@@ -322,8 +334,9 @@ public struct BackendAArch64: Backend {
           postTail.append(contentsOf: truePhiCode)
           postTail.append(.b("Lcfg_node_\(ifTrue.id)"))
         }
-        tail.append(.bEq(falseSymbol))
-        tail.append(.b(trueSymbol))
+        tail.append(
+          contentsOf: encodeBranch(cfg: cfg, node: node, ifFalse: falseSymbol, ifTrue: trueSymbol)
+        )
         tail.append(contentsOf: postTail)
       case .none: ()
       }
@@ -486,6 +499,26 @@ public struct BackendAArch64: Backend {
     return result
   }
 
+  internal func encodeBranch(cfg: CFG, node: CFG.Node, ifFalse: String, ifTrue: String)
+    -> [CodeLine]
+  {
+    guard case .call(let fn, _) = cfg.nodeCode[node]!.instructions.last!.op,
+      let op = comparisons.fnToOp[fn]
+    else {
+      fatalError("cannot branch except after comparison op call")
+    }
+    switch op {
+    case .checkStr, .checkInt:
+      return [.bEq(ifFalse), .b(ifTrue)]
+    case .eqInt:
+      return [.bNe(ifFalse), .b(ifTrue)]
+    case .lt:
+      return [.bGe(ifFalse), .b(ifTrue)]
+    case .gt:
+      return [.bLe(ifFalse), .b(ifTrue)]
+    }
+  }
+
   internal func encodeInstruction(
     cfg: CFG,
     stringTable: inout StringTable,
@@ -530,20 +563,32 @@ public struct BackendAArch64: Backend {
           ]
         }
       }
-    case .check(let value):
-      let (insts, reg) = argumentToRegister(
-        stringTable: &stringTable,
-        frame: frame,
-        argument: value,
-        defaultReg: .x(0)
-      )
-      switch value.dataType {
-      case .integer:
-        return insts + [.cmp(reg, .int(0))]
-      case .string:
-        return insts + [.ldr(.x(8), (reg, 0)), .cmp(.x(8), .int(0))]
-      }
+    case .check:
+      fatalError("check should have been replaced with comparison call")
     case .call(let fn, let args):
+      if let comparisonOp = comparisons.fnToOp[fn] {
+        var regInsts = [CodeLine]()
+        var regs = [Register]()
+        for (i, arg) in args.enumerated() {
+          let (insts, reg) = argumentToRegister(
+            stringTable: &stringTable,
+            frame: frame,
+            argument: arg,
+            defaultReg: .x(i)
+          )
+          regInsts.append(contentsOf: insts)
+          regs.append(reg)
+        }
+        switch comparisonOp {
+        case .checkStr:
+          return regInsts + [.ldr(.x(8), (regs[0], 0)), .cmp(.x(8), .int(0))]
+        case .checkInt:
+          return regInsts + [.cmp(regs[0], .int(0))]
+        default:
+          return regInsts + [.cmp(regs[0], .reg(regs[1]))]
+        }
+      }
+
       if let builtIn = fn.builtIn {
         switch builtIn {
         case .putc:

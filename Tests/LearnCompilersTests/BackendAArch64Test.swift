@@ -615,7 +615,11 @@ import Testing
         x = lt(ch1, ch2)
         y = gt(ch1, ch2)
         z = eq(ch1, ch2)
+        s: str = ""
         if? (x) {
+          s = "hi"
+        }
+        if? (s) {
           println("lt 5")
         }
         if? (y) {

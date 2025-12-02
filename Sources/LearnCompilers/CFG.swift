@@ -456,6 +456,24 @@ public struct CFG {
     return result
   }
 
+  /// List all of the functions that are referenced in a call, along with the
+  /// number of calls to those functions.
+  public func functionUsage() -> [Function: Int] {
+    var result = [Function: Int]()
+    for code in nodeCode.values {
+      for inst in code.instructions {
+        switch inst.op {
+        case .call(let fn, _):
+          result[fn, default: 0] += 1
+        case .callAndStore(_, let fn, _):
+          result[fn, default: 0] += 1
+        default: ()
+        }
+      }
+    }
+    return result
+  }
+
   /// Perform a depth-first search from a given node and return the DFS-ordered
   /// list of discovered nodes (including the node itself).
   public func dfsFrom(node: Node) -> [Node] {
@@ -473,10 +491,24 @@ public struct CFG {
     return nodeArr
   }
 
-  /// Add an entire AST to the graph.
-  public mutating func add(ast: AST) {
-    for fn in ast.functions {
-      add(fn: fn)
+  /// Add an entire AST to the graph, or only the functions in the AST which
+  /// are referenced in the current CFG.
+  public mutating func add(ast: AST, omitUnused: Bool = false) {
+    // Repeatedly add functions until all of the referenced functions are added.
+    var modified = true
+    while modified {
+      modified = false
+      let usage = functionUsage()
+      for fn in ast.functions {
+        if functions[fn.function!] != nil {
+          // Already added in a previous iteration.
+          continue
+        }
+        if !omitUnused || usage[fn.function!] != nil {
+          add(fn: fn)
+          modified = true
+        }
+      }
     }
   }
 

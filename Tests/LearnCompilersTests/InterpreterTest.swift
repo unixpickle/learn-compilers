@@ -54,3 +54,30 @@ import Testing
     )
   }
 }
+
+@Test func testInterpreterStrOnly() throws {
+  let code = """
+    fn main(x: int) -> str {
+      return!(str(x))
+    }
+    """
+  let cfg = try codeToCFG(code, opt: .none)
+  let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
+  let interp = try Interpreter(
+    cfg: cfg,
+    entrypoint: mainFunction,
+    arguments: [.integer(1337)]
+  )
+  guard let returnVal = interp.run() else {
+    #expect(Bool(false), "got nil return value")
+    return
+  }
+  if case .string(let x) = returnVal {
+    #expect(String(bytes: x.data, encoding: .utf8) == "1337")
+  } else {
+    #expect(
+      Bool(false),
+      "expected return value of a string but got \(String(describing: returnVal))"
+    )
+  }
+}

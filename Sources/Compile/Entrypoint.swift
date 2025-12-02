@@ -41,7 +41,7 @@ struct CompileApp {
       }
 
       var cfg = CFG(ast: ast)
-      cfg.add(ast: StandardLibrary.ast)
+      cfg.add(ast: StandardLibrary.ast, omitUnused: true)
       cfg.insertPhiAndNumberVars()
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
       try cfg.checkMissingReturns()
