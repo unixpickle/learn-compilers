@@ -81,6 +81,7 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case ifStatement
   case whileLoop
   case breakStatement
+  case continueStatement
   case returnStatement
   case codeBlock
   case codeBlockStatements
@@ -165,6 +166,7 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
       rule(.codeBlockStatement, [S.varAssign]),
       rule(.codeBlockStatement, [S.funcCall]),
       rule(.codeBlockStatement, [S.breakStatement]),
+      rule(.codeBlockStatement, [S.continueStatement]),
       rule(.codeBlockStatement, [S.returnStatement]),
 
       // Statements
@@ -180,6 +182,7 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
         ]
       ),
       rule(.breakStatement, ["b", "r", "e", "a", "k", "!", "(", ")"]),
+      rule(.continueStatement, ["c", "o", "n", "t", "i", "n", "u", "e", "!", "(", ")"]),
       rule(.returnStatement, ["r", "e", "t", "u", "r", "n", "!", "(", S.maybeExpression, ")"]),
       rule(
         .varDecl,

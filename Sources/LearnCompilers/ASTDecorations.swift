@@ -501,6 +501,10 @@ extension ASTNode {
           if !inLoop {
             errors.append(.breakOutsideOfLoop(br.position!))
           }
+        } else if let br = (node as? AST.ContinueStatement) {
+          if !inLoop {
+            errors.append(.continueOutsideOfLoop(br.position!))
+          }
         } else if let ret = (node as? AST.ReturnStatement) {
           // Verify the return type from the function
           guard let fn = inFunction else {

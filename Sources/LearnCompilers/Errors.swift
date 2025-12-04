@@ -72,6 +72,7 @@ public enum FuncResolutionError: ASTDecorationError, CustomStringConvertible {
 
 public enum TypeAndControlFlowError: ASTDecorationError, CustomStringConvertible {
   case breakOutsideOfLoop(Position)
+  case continueOutsideOfLoop(Position)
   case incorrectType(
     position: Position, expectedType: Variable.DataType, actualType: Variable.DataType
   )
@@ -83,6 +84,7 @@ public enum TypeAndControlFlowError: ASTDecorationError, CustomStringConvertible
   public var position: Position {
     switch self {
     case .breakOutsideOfLoop(let p): p
+    case .continueOutsideOfLoop(let p): p
     case .incorrectType(let p, _, _): p
     case .unknownFunction(let p, _, _): p
     case .missingValue(let p): p
@@ -95,6 +97,7 @@ public enum TypeAndControlFlowError: ASTDecorationError, CustomStringConvertible
     let body =
       switch self {
       case .breakOutsideOfLoop: "break statement outside of loop"
+      case .continueOutsideOfLoop: "continue statement outside of loop"
       case .incorrectType(_, let expectedType, let actualType):
         "expected type \(expectedType) but got \(actualType)"
       case .unknownFunction(_, let name, let argTypes):

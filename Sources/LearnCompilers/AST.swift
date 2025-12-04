@@ -493,6 +493,23 @@ public struct AST: ASTNode {
     }
   }
 
+  public struct ContinueStatement: ASTNode {
+    public var position: Position? = nil
+    public var continueText: Raw
+
+    public var contents: ChildrenOrCode {
+      get { .children([continueText]) }
+      set { continueText = newValue.children![0] as! Raw }
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.continueStatement, let rhs) = match else {
+        fatalError()
+      }
+      continueText = Raw(matches: rhs)
+    }
+  }
+
   public struct VarDecl: ASTNode {
     public var position: Position? = nil
     public var identifier: Identifier
@@ -799,6 +816,7 @@ public struct AST: ASTNode {
     case ifStatement(IfStatement, Position?)
     case whileLoop(WhileLoop, Position?)
     case breakStatement(BreakStatement, Position?)
+    case continueStatement(ContinueStatement, Position?)
     case returnStatement(ReturnStatement, Position?)
 
     public var funcCall: FuncCall? {
@@ -825,6 +843,10 @@ public struct AST: ASTNode {
       if case .breakStatement(let c, _) = self { c } else { nil }
     }
 
+    public var continueStatement: ContinueStatement? {
+      if case .continueStatement(let c, _) = self { c } else { nil }
+    }
+
     public var returnStatement: ReturnStatement? {
       if case .returnStatement(let c, _) = self { c } else { nil }
     }
@@ -838,6 +860,7 @@ public struct AST: ASTNode {
         case .ifStatement(let c, _): .children([c])
         case .whileLoop(let c, _): .children([c])
         case .breakStatement(let c, _): .children([c])
+        case .continueStatement(let c, _): .children([c])
         case .returnStatement(let c, _): .children([c])
         }
       }
@@ -851,6 +874,7 @@ public struct AST: ASTNode {
           case .ifStatement(_, let p): .ifStatement(c as! IfStatement, p)
           case .whileLoop(_, let p): .whileLoop(c as! WhileLoop, p)
           case .breakStatement(_, let p): .breakStatement(c as! BreakStatement, p)
+          case .continueStatement(_, let p): .continueStatement(c as! ContinueStatement, p)
           case .returnStatement(_, let p): .returnStatement(c as! ReturnStatement, p)
           }
       }
@@ -865,6 +889,7 @@ public struct AST: ASTNode {
         case .ifStatement(_, let p): p
         case .whileLoop(_, let p): p
         case .breakStatement(_, let p): p
+        case .continueStatement(_, let p): p
         case .returnStatement(_, let p): p
         }
       }
@@ -877,6 +902,7 @@ public struct AST: ASTNode {
           case .ifStatement(let c, _): .ifStatement(c, newValue)
           case .whileLoop(let c, _): .whileLoop(c, newValue)
           case .breakStatement(let c, _): .breakStatement(c, newValue)
+          case .continueStatement(let c, _): .continueStatement(c, newValue)
           case .returnStatement(let c, _): .returnStatement(c, newValue)
           }
       }
@@ -895,6 +921,8 @@ public struct AST: ASTNode {
       case .nonTerminal(.whileLoop, _): return .whileLoop(WhileLoop(match: rhs[0]), nil)
       case .nonTerminal(.breakStatement, _):
         return .breakStatement(BreakStatement(match: rhs[0]), nil)
+      case .nonTerminal(.continueStatement, _):
+        return .continueStatement(ContinueStatement(match: rhs[0]), nil)
       case .nonTerminal(.returnStatement, _):
         return .returnStatement(ReturnStatement(match: rhs[0]), nil)
       default: fatalError()

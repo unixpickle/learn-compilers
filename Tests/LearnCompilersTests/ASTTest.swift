@@ -53,6 +53,25 @@ import Testing
   #expect(ast.codeString == code)
   ensureSetContentsDoesntChange(node: ast)
 
+  code = """
+    fn main(x: int) -> int {
+      x: int = -1
+      while? (lt(x, 5)) {
+        x = add(x, 1)
+        if? (lt(x, 3)) {
+          continue!()
+        }
+        print(x)
+        break!()
+      }
+      print(x)
+    }
+    """
+  match = try Parser.parse(code)
+  ast = AST(match: match)
+  #expect(ast.codeString == code)
+  ensureSetContentsDoesntChange(node: ast)
+
   code = "fn main(x: int) -> int {\n  x: int = 3\n  return!(add(x, 3))\n}"
   match = try Parser.parse(code)
   ast = AST(match: match)

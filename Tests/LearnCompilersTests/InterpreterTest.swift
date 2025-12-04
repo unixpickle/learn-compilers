@@ -81,3 +81,55 @@ import Testing
     )
   }
 }
+
+@Test func testInterpreterContinue() throws {
+  let code = """
+    fn main() -> str {
+      result: str = str_alloc(19)
+      i: int = 1
+      while? (lt(i, 20)) {
+        i = add(i, 1)
+        if? (not(mod(i, 3))) {
+          str_set(result, sub(i, 2), str_get("3", 0))
+          continue!()
+        }
+        if? (not(mod(i, 5))) {
+          str_set(result, sub(i, 2), str_get("5", 0))
+          continue!()
+        }
+        str_set(result, sub(i, 2), str_get("N", 0))
+      }
+      return!(result)
+    }
+    """
+  let cfg = try codeToCFG(code, opt: .none)
+  let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
+  let interp = try Interpreter(
+    cfg: cfg,
+    entrypoint: mainFunction,
+    arguments: []
+  )
+  guard let returnVal = interp.run() else {
+    #expect(Bool(false), "expected non-nil return value but got nil")
+    return
+  }
+  if case .string(let x) = returnVal {
+    let strData = String(bytes: x.data, encoding: .utf8)
+    var expected = ""
+    for i in 2...20 {
+      if i % 3 == 0 {
+        expected += "3"
+      } else if i % 5 == 0 {
+        expected += "5"
+      } else {
+        expected += "N"
+      }
+    }
+    #expect(strData == expected)
+  } else {
+    #expect(
+      Bool(false),
+      "expected return value of a string but got \(String(describing: returnVal))"
+    )
+  }
+}

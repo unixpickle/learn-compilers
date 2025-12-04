@@ -553,7 +553,7 @@ public struct CFG {
 
   private enum AddBlockOp {
     case build(
-      node: Node, statements: [AST.Statement], next: Node, loopExit: Node?
+      node: Node, statements: [AST.Statement], next: Node, loopEntrance: Node?, loopExit: Node?
     )
   }
 
@@ -566,11 +566,17 @@ public struct CFG {
   ) {
     var queue: [AddBlockOp] = [
       .build(
-        node: node, statements: block.statements.map { $0.statement }, next: next, loopExit: nil
+        node: node,
+        statements: block.statements.map { $0.statement },
+        next: next,
+        loopEntrance: nil,
+        loopExit: nil
       )
     ]
 
-    while case .build(let node, let statements, let next, let loopExit) = queue.popLast() {
+    while case .build(let node, let statements, let next, let loopEntrance, let loopExit) =
+      queue.popLast()
+    {
       var hitControlFlow = false
       for (i, statement) in statements.enumerated() {
         switch statement {
@@ -585,7 +591,13 @@ public struct CFG {
           addEdge(from: node, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
           if !nextStatements.isEmpty {
             queue.append(
-              .build(node: falseNode, statements: nextStatements, next: next, loopExit: loopExit)
+              .build(
+                node: falseNode,
+                statements: nextStatements,
+                next: next,
+                loopEntrance: loopEntrance,
+                loopExit: loopExit
+              )
             )
           }
           queue.append(
@@ -593,6 +605,7 @@ public struct CFG {
               node: trueNode,
               statements: ifStatement.block.statements.map { $0.statement },
               next: falseNode,
+              loopEntrance: loopEntrance,
               loopExit: loopExit
             )
           )
@@ -611,7 +624,13 @@ public struct CFG {
           addEdge(from: checkNode, to: .branch(ifFalse: falseNode, ifTrue: trueNode))
           if !nextStatements.isEmpty {
             queue.append(
-              .build(node: falseNode, statements: nextStatements, next: next, loopExit: loopExit)
+              .build(
+                node: falseNode,
+                statements: nextStatements,
+                next: next,
+                loopEntrance: loopEntrance,
+                loopExit: loopExit
+              )
             )
           }
           queue.append(
@@ -619,6 +638,7 @@ public struct CFG {
               node: trueNode,
               statements: whileLoop.block.statements.map { $0.statement },
               next: checkNode,
+              loopEntrance: checkNode,
               loopExit: falseNode
             )
           )
@@ -641,6 +661,10 @@ public struct CFG {
         case .breakStatement(_, _):
           assert(loopExit != nil, "hit break outside of loop")
           addEdge(from: node, to: .single(loopExit!))
+          hitControlFlow = true
+        case .continueStatement(_, _):
+          assert(loopEntrance != nil, "hit continue outside of loop")
+          addEdge(from: node, to: .single(loopEntrance!))
           hitControlFlow = true
         case .varDecl(let statement, let position):
           let exprArg = lowerExpression(node: node, expr: statement.expression)
