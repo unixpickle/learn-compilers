@@ -1,5 +1,3 @@
-fn comment(x: str) {}
-
 fn read_all() -> str {
   result: str = str_alloc(0)
   while? (1) {
@@ -20,7 +18,7 @@ fn read_all() -> str {
 fn grow_zeroed(s: str, new_len: int) -> str {
   old_len: int = len(s)
   if? (not(lt(new_len, old_len))) {
-    comment("allocate new, copy old, zero the rest")
+    // allocate new, copy old, zero the rest
     t: str = str_alloc(new_len)
     i: int = 0
     while? (lt(i, old_len)) {
@@ -43,12 +41,10 @@ fn match_forward(prog: str, pos: int) -> int {
   i: int = add(pos, 1)
   while? (lt(i, n)) {
     ch: int = str_get(prog, i)
-    if? (eq(ch, 91)) {
-      comment("is_command '['")
+    if? (eq(ch, 91)) { // '['
       depth = add(depth, 1)
     }
-    if? (eq(ch, 93)) {
-      comment("is_command ']'")
+    if? (eq(ch, 93)) { // ']'
       depth = sub(depth, 1)
       if? (eq(depth, 0)) {
         return!(i)
@@ -65,11 +61,11 @@ fn match_backward(prog: str, pos: int) -> int {
   while? (not(lt(i, 0))) {
     ch: int = str_get(prog, i)
     if? (eq(ch, 93)) {
-      comment("is_command ']' while scanning backward")
+      // ']' while scanning backward
       depth = add(depth, 1)
     }
     if? (eq(ch, 91)) {
-      comment("is_command '[' while scanning backward")
+      // '[' while scanning backward
       depth = sub(depth, 1)
       if? (eq(depth, 0)) {
         return!(i)
@@ -83,8 +79,8 @@ fn match_backward(prog: str, pos: int) -> int {
 fn ensure_tape_capacity(tape: str, needed_index: int) -> str {
   needed_len: int = add(needed_index, 1)
   if? (lt(len(tape), needed_len)) {
-    comment("grow to needed_len")
-    return!(grow_zeroed(tape, needed_len))
+    // grow to needed_len
+    return!(grow_zeroed(tape, mul(2, needed_len)))
   }
   return!(tape)
 }
@@ -110,59 +106,57 @@ fn run_bf(program: str) {
   plen: int = len(program)
   dp: int = 0
 
-  comment("start with 1 zeroed cell")
+  // start with 1 zeroed cell
   tape: str = str_alloc(1)
   str_set(tape, 0, 0)
 
   while? (lt(pc, plen)) {
     op: int = str_get(program, pc)
-    is_command: int = 0
 
     if? (eq(op, str_get(">", 0))) {
-      is_command = 1
       dp = add(dp, 1)
       tape = ensure_tape_capacity(tape, dp)
       pc = add(pc, 1)
+      continue!()
     }
 
     if? (eq(op, str_get("<", 0))) {
-      is_command = 1
       dp = sub(dp, 1)
       if? (lt(dp, 0)) {
         dp = 0
       }
       pc = add(pc, 1)
+      continue!()
     }
 
     if? (eq(op, str_get("+", 0))) {
-      is_command = 1
       cur: int = str_get(tape, dp)
       cur = cell_inc(cur)
       str_set(tape, dp, cur)
       pc = add(pc, 1)
+      continue!()
     }
 
     if? (eq(op, str_get("-", 0))) {
-      is_command = 1
       cur: int = str_get(tape, dp)
       cur = cell_dec(cur)
       str_set(tape, dp, cur)
       pc = add(pc, 1)
+      continue!()
     }
 
     if? (eq(op, str_get(".", 0))) {
-      is_command = 1
       putc(str_get(tape, dp))
       pc = add(pc, 1)
+      continue!()
     }
 
     if? (eq(op, str_get("[", 0))) {
-      is_command = 1
       cur: int = str_get(tape, dp)
       if? (eq(cur, 0)) {
         j: int = match_forward(program, pc)
         if? (lt(j, 0)) {
-          comment("unmatched '['")
+          // unmatched '['
           pc = add(pc, 1)
         }
         if? (not(lt(j, 0))) {
@@ -172,10 +166,10 @@ fn run_bf(program: str) {
       if? (not(eq(cur, 0))) {
         pc = add(pc, 1)
       }
+      continue!()
     }
 
     if? (eq(op, str_get("]", 0))) {
-      is_command = 1
       cur2: int = str_get(tape, dp)
       if? (eq(cur2, 0)) {
         pc = add(pc, 1)
@@ -183,19 +177,18 @@ fn run_bf(program: str) {
       if? (not(eq(cur2, 0))) {
         j2: int = match_backward(program, pc)
         if? (lt(j2, 0)) {
-          comment("unmatched ']'")
+          // unmatched ']'
           pc = add(pc, 1)
         }
         if? (not(lt(j2, 0))) {
           pc = add(j2, 1)
         }
       }
+      continue!()
     }
 
-    if? (not(is_command)) {
-      comment("ignore non-BF chars")
-      pc = add(pc, 1)
-    }
+    // ignore non-BF chars
+    pc = add(pc, 1)
   }
 }
 

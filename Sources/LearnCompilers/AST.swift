@@ -350,6 +350,23 @@ public struct AST: ASTNode {
     }
   }
 
+  public struct CommentStatement: ASTNode {
+    public var position: Position? = nil
+    public var commentText: Raw
+
+    public var contents: ChildrenOrCode {
+      get { .children([commentText]) }
+      set { commentText = newValue.children![0] as! Raw }
+    }
+
+    internal init(match: ASTMatch) {
+      guard case .nonTerminal(.comment, let rhs) = match else {
+        fatalError()
+      }
+      commentText = Raw(matches: rhs)
+    }
+  }
+
   public struct IfStatement: ASTNode {
     public var position: Position? = nil
     public var ifText: Raw
@@ -810,6 +827,7 @@ public struct AST: ASTNode {
   }
 
   public enum Statement: ASTNode {
+    case comment(CommentStatement, Position?)
     indirect case funcCall(FuncCall, Position?)
     case varDecl(VarDecl, Position?)
     case varAssign(VarAssign, Position?)
@@ -818,6 +836,10 @@ public struct AST: ASTNode {
     case breakStatement(BreakStatement, Position?)
     case continueStatement(ContinueStatement, Position?)
     case returnStatement(ReturnStatement, Position?)
+
+    public var comment: CommentStatement? {
+      if case .comment(let c, _) = self { c } else { nil }
+    }
 
     public var funcCall: FuncCall? {
       if case .funcCall(let c, _) = self { c } else { nil }
@@ -854,6 +876,7 @@ public struct AST: ASTNode {
     public var contents: ChildrenOrCode {
       get {
         switch self {
+        case .comment(let c, _): .children([c])
         case .funcCall(let c, _): .children([c])
         case .varDecl(let c, _): .children([c])
         case .varAssign(let c, _): .children([c])
@@ -868,6 +891,7 @@ public struct AST: ASTNode {
         let c = newValue.children![0]
         self =
           switch self {
+          case .comment(_, let p): .comment(c as! CommentStatement, p)
           case .funcCall(_, let p): .funcCall(c as! FuncCall, p)
           case .varDecl(_, let p): .varDecl(c as! VarDecl, p)
           case .varAssign(_, let p): .varAssign(c as! VarAssign, p)
@@ -883,6 +907,7 @@ public struct AST: ASTNode {
     public var position: Position? {
       get {
         switch self {
+        case .comment(_, let p): p
         case .funcCall(_, let p): p
         case .varDecl(_, let p): p
         case .varAssign(_, let p): p
@@ -896,6 +921,7 @@ public struct AST: ASTNode {
       set {
         self =
           switch self {
+          case .comment(let c, _): .comment(c, newValue)
           case .funcCall(let c, _): .funcCall(c, newValue)
           case .varDecl(let c, _): .varDecl(c, newValue)
           case .varAssign(let c, _): .varAssign(c, newValue)
@@ -914,6 +940,7 @@ public struct AST: ASTNode {
       }
       assert(rhs.count == 1)
       switch rhs[0] {
+      case .nonTerminal(.comment, _): return .comment(CommentStatement(match: rhs[0]), nil)
       case .nonTerminal(.funcCall, _): return .funcCall(FuncCall(match: rhs[0]), nil)
       case .nonTerminal(.varDecl, _): return .varDecl(VarDecl(match: rhs[0]), nil)
       case .nonTerminal(.varAssign, _): return .varAssign(VarAssign(match: rhs[0]), nil)

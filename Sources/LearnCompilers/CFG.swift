@@ -580,6 +580,7 @@ public struct CFG {
       var hitControlFlow = false
       for (i, statement) in statements.enumerated() {
         switch statement {
+        case .comment: ()
         case .ifStatement(let ifStatement, _):
           let checkArg = lowerExpression(node: node, expr: ifStatement.expression)
           nodeCode[node]!.instructions.append(

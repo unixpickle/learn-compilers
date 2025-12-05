@@ -4,7 +4,8 @@ import Testing
 @testable import LearnCompilers
 
 @Test func testASTRoundTrip() throws {
-  var code = "fn main() -> int {\n  x: int = 3\n  y: int = add(x, 4)\n  print(y)\n}"
+  var code =
+    "fn main() -> int {\n  // declare\n  x: int = 3 //here we go!   \n  y: int = add(x, 4)\n  print(y)\n}"
   var match = try Parser.parse(code)
   var ast = AST(match: match)
   #expect(ast.codeString == code)

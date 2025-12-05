@@ -86,6 +86,8 @@ public enum SimpleGrammarKeyword: SymbolProto {
   case codeBlock
   case codeBlockStatements
   case codeBlockStatement
+  case comment
+  case commentContent
 }
 
 private protocol TerminalOrNonTerminal {
@@ -155,11 +157,16 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
         [S.identifier, S.maybeWhitespace, ":", S.maybeWhitespace, S.typeIdentifier]
       ),
 
+      // Comments
+      rule(.comment, ["/", S.commentContent, "\n"]),
+      rule(.commentContent, []),
+
       // Code blocks.
       rule(.codeBlock, ["{", S.maybeWhitespace, S.codeBlockStatements, "}"]),
       rule(.codeBlockStatements, []),
       rule(.codeBlockStatements, [S.codeBlockStatement]),
       rule(.codeBlockStatements, [S.codeBlockStatement, S.whitespace, S.codeBlockStatements]),
+      rule(.codeBlockStatement, [S.comment]),
       rule(.codeBlockStatement, [S.ifStatement]),
       rule(.codeBlockStatement, [S.whileLoop]),
       rule(.codeBlockStatement, [S.varDecl]),
@@ -254,6 +261,12 @@ public class SimpleGrammar: Grammar<String, SimpleGrammarKeyword> {
 
     for ch in (32...127) {
       let chStr = String(Character(UnicodeScalar(ch)!))
+      rules.append(
+        .init(
+          lhs: .commentContent,
+          rhs: [.terminal(chStr), .nonTerminal(S.commentContent)]
+        )
+      )
       if chStr == "\\" || chStr == "\"" {
         continue
       }

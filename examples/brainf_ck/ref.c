@@ -78,9 +78,8 @@ static char *ensure_tape_capacity(char *tape, size_t *len,
                                   size_t needed_index) {
   size_t needed_len = needed_index + 1;
   if (*len < needed_len) {
-    // grow to needed_len
-    tape = grow_zeroed(tape, *len, needed_len);
-    *len = needed_len;
+    tape = grow_zeroed(tape, *len, needed_len * 2);
+    *len = needed_len * 2;
   }
   return tape;
 }
