@@ -216,4 +216,169 @@ extension CFG {
     return succeeded
   }
 
+  /// Inline all functions which are only called once, removing the
+  /// function definitions that were inlined.
+  public mutating func inlineSingleCalls() {
+    while let (fn, node, idx) = functionUsage().compactMap({ (fn, uses) -> (Function, Node, Int)? in
+      if uses.count != 1 {
+        return nil
+      }
+      if functions[fn] == nil {
+        // This must be a built-in function, so we can't inline it.
+        return nil
+      }
+      let (node, idx) = uses.first!
+      let fnNodes = Set(dfsFrom(node: functions[fn]!))
+      if fnNodes.contains(node) {
+        // The function is called once, but it's recursive.
+        return nil
+      }
+      return (fn, node, idx)
+    }).sorted(by: { $0.1.id < $1.1.id || ($0.1.id == $1.1.id && $0.2 < $1.2) }).first {
+      inlineCall(node: node, instruction: idx)
+      remove(function: fn)
+    }
+  }
+
+  /// Inline the function call at a given instruction position.
+  public mutating func inlineCall(node: Node, instruction: Int) {
+    let code = nodeCode[node]!
+    let (targetVar, fn, arguments): (SSAVariable?, Function, [Argument]) =
+      switch code.instructions[instruction].op {
+      case .call(let f, let a): (nil, f, a)
+      case .callAndStore(let t, let f, let a): (t, f, a)
+      default: fatalError("not a function call")
+      }
+
+    let (newNodes, entry, exit) = duplicate(function: fn)
+    for node in newNodes {
+      var newCode = nodeCode[node]!
+      for (i, var inst) in newCode.instructions.enumerated() {
+        switch inst.op {
+        case .funcArg(let target, let idx):
+          inst.op = .copy(target, arguments[idx])
+        case .returnValue(let value):
+          if let t = targetVar {
+            inst.op = .copy(t, value)
+          } else {
+            continue
+          }
+        case .returnVoid:
+          continue
+        default: ()
+        }
+        newCode.instructions[i] = inst
+      }
+      nodeCode[node] = newCode
+    }
+
+    // Stitch together the new graph.
+    predecessors[entry] = [node]
+    var newTail = exit
+    if instruction + 1 < code.instructions.count {
+      // Split out the remaining instructions of the node.
+      newTail = addNode()
+      nodeCode[newTail]!.instructions = Array(code.instructions[(instruction + 1)...])
+      successors[exit] = .single(newTail)
+      predecessors[newTail] = [exit]
+    }
+    if let succ = successors[node] {
+      successors[newTail] = succ
+      for n in succ.nodes {
+        predecessors[n] = Set(predecessors[n]!.map { $0 == node ? newTail : $0 })
+
+        // Replace the source node in phi functions of this successor.
+        var newCode = nodeCode[n]!
+        for (i, var inst) in newCode.instructions.enumerated() {
+          if case .phi(let target, var branches) = inst.op,
+            let v = branches.removeValue(forKey: node)
+          {
+            branches[newTail] = v
+            inst.op = .phi(target, branches)
+            newCode.instructions[i] = inst
+          }
+        }
+        nodeCode[n] = newCode
+      }
+    }
+    successors[node] = .single(entry)
+    nodeCode[node]!.instructions = Array(code.instructions[..<instruction])
+  }
+
+  internal mutating func duplicate(function fn: Function) -> (
+    nodes: [Node], entry: Node, exit: Node
+  ) {
+    // Duplicate the inlined function with new nodes and variables.
+    var newVariables = [Variable: Variable]()
+    let origNodes = dfsFrom(node: functions[fn]!)
+    let copiedNodes: Array = origNodes.map { oldNode in
+      let newNode = addNode()
+      var newCode = nodeCode[oldNode]!
+      for (i, var inst) in newCode.instructions.enumerated() {
+        for v in inst.op.defs + inst.op.uses {
+          if let newV = newVariables[v.variable] {
+            inst.op = inst.op.replacing(v, with: SSAVariable(variable: newV, version: v.version))
+          } else {
+            let newV = Variable(
+              declarationPosition: v.variable.declarationPosition,
+              name: v.variable.name,
+              type: v.variable.type,
+              isArgument: v.variable.isArgument
+            )
+            newVariables[v.variable] = newV
+            inst.op = inst.op.replacing(v, with: SSAVariable(variable: newV, version: v.version))
+          }
+        }
+        newCode.instructions[i] = inst
+      }
+      nodeCode[newNode] = newCode
+      return newNode
+    }
+
+    // Replicate the graph connectivity into the new nodes.
+    let origToCopy = Dictionary(uniqueKeysWithValues: zip(origNodes, copiedNodes))
+    for (orig, copy) in zip(origNodes, copiedNodes) {
+      if let p = predecessors[orig] {
+        predecessors[copy] = Set(p.map { origToCopy[$0]! })
+      }
+      switch successors[orig] {
+      case .single(let x): successors[copy] = .single(origToCopy[x]!)
+      case .branch(let x, let y):
+        successors[copy] = .branch(ifFalse: origToCopy[x]!, ifTrue: origToCopy[y]!)
+      case .none: ()
+      }
+    }
+
+    // Replace phi function arguments
+    for node in copiedNodes {
+      var newCode = nodeCode[node]!
+      for (i, var inst) in newCode.instructions.enumerated() {
+        if case .phi(let target, let branches) = inst.op {
+          inst.op = .phi(
+            target,
+            Dictionary(
+              uniqueKeysWithValues: branches.map { (origToCopy[$0.key]!, $0.value) }
+            )
+          )
+          newCode.instructions[i] = inst
+        }
+      }
+      nodeCode[node] = newCode
+    }
+
+    let entryNodes = copiedNodes.filter { predecessors[$0, default: []].isEmpty }
+    assert(
+      entryNodes.count == 1, "expected exactly one root node in a function, got \(entryNodes.count)"
+    )
+    let entryNode = entryNodes.first!
+    let exitNodes = copiedNodes.filter { successors(of: $0).isEmpty }
+    assert(
+      exitNodes.count == 1,
+      "expected exactly one leaf node in a function"
+    )
+    let exitNode = exitNodes.first!
+
+    return (nodes: copiedNodes, entry: entryNode, exit: exitNode)
+  }
+
 }

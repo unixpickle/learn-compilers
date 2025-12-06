@@ -44,6 +44,8 @@ struct CompileApp {
       cfg.add(ast: StandardLibrary.ast, omitUnused: true)
       cfg.insertPhiAndNumberVars()
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+      cfg.inlineSingleCalls()
+      cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
       try cfg.checkMissingReturns()
 
       let outputString = try BackendAArch64().compileAssembly(cfg: cfg)

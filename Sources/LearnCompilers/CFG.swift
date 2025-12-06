@@ -457,16 +457,16 @@ public struct CFG {
   }
 
   /// List all of the functions that are referenced in a call, along with the
-  /// number of calls to those functions.
-  public func functionUsage() -> [Function: Int] {
-    var result = [Function: Int]()
-    for code in nodeCode.values {
-      for inst in code.instructions {
+  /// locations where the call occurs.
+  public func functionUsage() -> [Function: [(Node, Int)]] {
+    var result = [Function: [(Node, Int)]]()
+    for (node, code) in nodeCode {
+      for (i, inst) in code.instructions.enumerated() {
         switch inst.op {
         case .call(let fn, _):
-          result[fn, default: 0] += 1
+          result[fn, default: []].append((node, i))
         case .callAndStore(_, let fn, _):
-          result[fn, default: 0] += 1
+          result[fn, default: []].append((node, i))
         default: ()
         }
       }
@@ -778,6 +778,15 @@ public struct CFG {
       succ.nodes
     } else {
       []
+    }
+  }
+
+  public mutating func remove(function fn: Function) {
+    for node in dfsFrom(node: functions.removeValue(forKey: fn)!) {
+      nodes.remove(node)
+      predecessors.removeValue(forKey: node)
+      successors.removeValue(forKey: node)
+      nodeCode.removeValue(forKey: node)
     }
   }
 

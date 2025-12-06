@@ -133,3 +133,68 @@ import Testing
     )
   }
 }
+
+@Test func testInterpreterInlining() throws {
+  let code = """
+    fn fn_a(x: int) -> int {
+      return!(mul(x, 3))
+    }
+
+    fn fn_b(x: int) -> int {
+      // Inline a function with a phi
+      if? (not(mod(x, 3))) {
+        return!(x)
+      }
+      return!(add(x, mod(x, 3)))
+    }
+
+    fn fn_c(x: str, y: int, z: int) -> int {
+      str_set(x, y, z)
+      return!(add(y, 2))
+    }
+
+    fn fn_d(x: str, y: int, z: int) {
+      str_set(x, y, z)
+    }
+
+    fn main() -> str {
+      result: str = str_alloc(19)
+      i: int = 1
+      while? (lt(i, 20)) {
+        i = add(i, 1)
+        x: int = i
+        y: int = i
+        if? (lt(i, 10)) {
+          // Two inlines for variables used in a future phi
+          x = fn_a(i)
+          y = fn_b(i)
+        }
+        fn_c(result, sub(i, 2), x) // Inline without using return
+        fn_d(result, sub(i, 2), add(x, y)) // Inline with no return
+      }
+      return!(result)
+    }
+    """
+  let cfg = try codeToCFG(code, opt: .none)
+  let mainFunction = cfg.functions.keys.compactMap { key in key.name == "main" ? key : nil }.first!
+  let interp = try Interpreter(
+    cfg: cfg,
+    entrypoint: mainFunction,
+    arguments: []
+  )
+  guard let returnVal = interp.run() else {
+    #expect(Bool(false), "expected non-nil return value but got nil")
+    return
+  }
+  if case .string(let x) = returnVal {
+    let expected = (2...20).map { (x: Int) -> UInt8 in
+      UInt8(x < 10 ? (4 * x + (x % 3)) : 2 * x)
+    }
+    #expect(x.data == expected)
+  } else {
+    #expect(
+      Bool(false),
+      "expected return value of a string but got \(String(describing: returnVal))"
+    )
+  }
+}

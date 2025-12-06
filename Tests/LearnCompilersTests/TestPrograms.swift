@@ -190,6 +190,7 @@ func checkFactorImplementation(cfg: CFG) throws {
 enum OptLevel {
   case none
   case basic
+  case basicWithInlining
 }
 
 internal func codeToCFG(_ code: String, opt: OptLevel) throws -> CFG {
@@ -216,6 +217,10 @@ internal func codeToCFGs(_ code: String, opt: OptLevel, count: Int) throws -> [C
     cfg.add(ast: StandardLibrary.ast, omitUnused: true)
     cfg.insertPhiAndNumberVars()
     if opt != .none {
+      cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+    }
+    if opt == .basicWithInlining {
+      cfg.inlineSingleCalls()
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
     }
     try cfg.checkMissingReturns()

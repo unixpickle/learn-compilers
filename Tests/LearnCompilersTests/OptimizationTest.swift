@@ -30,6 +30,7 @@ import Testing
     try codeToCFG(code, opt: .none)
   }
   verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basic))
+  verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basicWithInlining))
 
   code = """
     fn main(x: int) -> int {
@@ -44,6 +45,7 @@ import Testing
     try codeToCFG(code, opt: .none)
   }
   verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basic))
+  verifyCFGInvariants(cfg: try codeToCFG(code, opt: .basicWithInlining))
 }
 
 @Test func testBasicOptimizationCascadingConstants() throws {
@@ -86,7 +88,6 @@ import Testing
   let optCFG = optCFGs[0]
   verifyCFGInvariants(cfg: optCFG)
   #expect(!containsPrint(cfg: optCFG), "optimized CFG should optimize away print")
-
   checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
 }
 
@@ -130,22 +131,81 @@ import Testing
   checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
 }
 
+@Test func testInlineBasicOptimizationRemovesNestedFunctions() throws {
+  let code = """
+    fn foo_0(x: int) -> int {
+      return!(foo_2(x))
+    }
+    fn foo_1(x: int) -> int {
+      return!(foo_3(x))
+    }
+    fn foo_2(x: int) -> int {
+      return!(foo_1(x))
+    }
+    fn foo_3(x: int) -> int {
+      return!(add(x, 3))
+    }
+
+    fn bar_0(x: int) -> int {
+      return!(bar_3(x))
+    }
+    fn bar_1(x: int) -> int {
+      return!(bar_2(x))
+    }
+    fn bar_2(x: int) -> int {
+      return!(mul(x, 3))
+    }
+    fn bar_3(x: int) -> int {
+      return!(bar_1(x))
+    }
+
+    fn main(x: int, y: int) -> int {
+      return!(mul(foo_0(x), bar_0(y)))
+    }
+    """
+
+  func containsInlined(cfg: CFG) -> Bool {
+    for (fn, _) in cfg.functions {
+      if fn.name.starts(with: "foo_") || fn.name.starts(with: "bar_") {
+        return true
+      }
+    }
+    return false
+  }
+
+  let naiveCFG = try codeToCFG(code, opt: .none)
+  verifyCFGInvariants(cfg: naiveCFG)
+  #expect(containsInlined(cfg: naiveCFG), "naive CFG shouldn't optimize away inlined funcs")
+  let optCFGs = try codeToCFGs(code, opt: .basicWithInlining, count: 5)
+  let optCFG = optCFGs[0]
+  verifyCFGInvariants(cfg: optCFG)
+  #expect(!containsInlined(cfg: optCFG), "optimized CFG should optimize away inlined funcs")
+
+  for i in 1..<optCFGs.count {
+    checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[i])
+  }
+}
+
 @Test func testBasicOptimizationFibonacci() throws {
-  for code in FibonacciImplementations {
-    let cfgs = try codeToCFGs(code, opt: .basic, count: 2)
-    let cfg = cfgs[0]
-    verifyCFGInvariants(cfg: cfg)
-    try checkFibonacciImplementation(cfg: cfg)
-    checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
+  for opt in [OptLevel.basic, .basicWithInlining] {
+    for code in FibonacciImplementations {
+      let cfgs = try codeToCFGs(code, opt: opt, count: 2)
+      let cfg = cfgs[0]
+      verifyCFGInvariants(cfg: cfg)
+      try checkFibonacciImplementation(cfg: cfg)
+      checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
+    }
   }
 }
 
 @Test func testBasicOptimizationTableFormat() throws {
-  let cfgs = try codeToCFGs(TableFormatImplementation, opt: .basic, count: 2)
-  let cfg = cfgs[0]
-  verifyCFGInvariants(cfg: cfg)
-  try checkTableFormatImplementation(cfg: cfg)
-  checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
+  for opt in [OptLevel.basic, .basicWithInlining] {
+    let cfgs = try codeToCFGs(TableFormatImplementation, opt: opt, count: 2)
+    let cfg = cfgs[0]
+    verifyCFGInvariants(cfg: cfg)
+    try checkTableFormatImplementation(cfg: cfg)
+    checkCFGEqual(cfg1: cfg, cfg2: cfgs[1])
+  }
 }
 
 func verifyCFGInvariants(cfg: CFG) {
