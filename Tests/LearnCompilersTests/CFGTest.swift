@@ -271,6 +271,7 @@ import Testing
 
   var cfg = CFG(ast: ast)
   cfg.insertPhiAndNumberVars()
+  checkReturns(cfg: cfg)
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
@@ -303,6 +304,7 @@ import Testing
 
   var cfg = CFG(ast: ast)
   cfg.insertPhiAndNumberVars()
+  checkReturns(cfg: cfg)
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
 
@@ -350,6 +352,7 @@ import Testing
   }
   cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
+  checkReturns(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
   cfg2.insertPhiAndNumberVars()
@@ -381,6 +384,7 @@ import Testing
   cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+  checkReturns(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
   cfg2.insertPhiAndNumberVars()
@@ -416,6 +420,7 @@ import Testing
   cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+  checkReturns(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
   cfg2.insertPhiAndNumberVars()
@@ -483,10 +488,46 @@ import Testing
   cfg.insertPhiAndNumberVars()
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+  checkReturns(cfg: cfg)
 
   var cfg2 = CFG(ast: ast)
   cfg2.insertPhiAndNumberVars()
   checkCFGEqual(cfg1: cfg, cfg2: cfg2)
+}
+
+/// Check that each function has at most one exit node with a return
+/// instruction in it.
+func checkReturns(cfg: CFG) {
+  for (fn, root) in cfg.functions {
+    let nodes = cfg.dfsFrom(node: root)
+
+    var returnCount = 0
+    for node in nodes {
+      for inst in cfg.nodeCode[node]!.instructions {
+        switch inst.op {
+        case .returnVoid: returnCount += 1
+        case .returnValue: returnCount += 1
+        default: ()
+        }
+      }
+    }
+    #expect(returnCount < 2, "expected at most one return but found \(returnCount)")
+
+    let children = nodes.filter { cfg.successors(of: $0).isEmpty }
+    #expect(children.count < 2, "expect at most one leaf node but got \(children) for \(fn)")
+    if children.count != 1 {
+      continue
+    }
+    for child in children {
+      let code = cfg.nodeCode[child]!
+      switch code.instructions.last?.op {
+      case .returnValue: ()
+      case .returnVoid: ()
+      default:
+        #expect(Bool(false), "unexpected final instruction from leaf node for function \(fn)")
+      }
+    }
+  }
 }
 
 /// Check SSA condition that variable versions are only assigned once.

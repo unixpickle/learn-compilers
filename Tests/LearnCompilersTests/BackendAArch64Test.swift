@@ -10,7 +10,7 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data(), optimize: true)
+  let output = try runCode(code: code, stdin: Data(), opt: .basic)
   #expect(output == Data("hello, world!\n".utf8))
 }
 
@@ -62,8 +62,10 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data("103928\n".utf8), optimize: true)
-  #expect(output == Data("enter a positive integer:\n103928 = 2 * 2 * 2 * 11 * 1181\n".utf8))
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data("103928\n".utf8), opt: opt)
+    #expect(output == Data("enter a positive integer:\n103928 = 2 * 2 * 2 * 11 * 1181\n".utf8))
+  }
 }
 
 @Test func testBackendAArch64ManyArgsAndVars() throws {
@@ -99,8 +101,10 @@ import Testing
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data("abcdefghijk".utf8), optimize: true)
-  #expect(output == Data("abcdefghijk are some letters\n".utf8))
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data("abcdefghijk".utf8), opt: opt)
+    #expect(output == Data("abcdefghijk are some letters\n".utf8))
+  }
 }
 
 @Test func testBackendAArch64LargeConstants() throws {
@@ -118,8 +122,8 @@ import Testing
       return!(0)
     }
     """
-  for opt in [false, true] {
-    let output = try runCode(code: code, stdin: Data(), optimize: opt)
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data(), opt: opt)
     #expect(output == Data("12345678901\n16776978\n65535\n".utf8))
   }
 }
@@ -355,8 +359,8 @@ import Testing
       --------.
       >>>++++[<++++++++>-]<+.
     """
-  for opt in [false, true] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
     #expect(output == Data("Hello, World!".utf8))
   }
 }
@@ -566,8 +570,8 @@ import Testing
   }
   expectedOutput += Data("\n".utf8)
 
-  for opt in [false, true] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
     #expect(
       output == expectedOutput, "output is \(Array(output)), expected \(Array(expectedOutput))")
   }
@@ -644,8 +648,8 @@ import Testing
       .utf8
   )
 
-  for opt in [false, true] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), optimize: opt)
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
     #expect(
       output == expectedOutput,
       "output is \(Array(output)), expected \(Array(expectedOutput))"
@@ -657,14 +661,14 @@ enum CompileError: Error {
   case clangError(String)
 }
 
-func runCode(code: String, stdin: Data, optimize: Bool) throws -> Data {
+func runCode(code: String, stdin: Data, opt: OptLevel) throws -> Data {
   let baseURL = FileManager.default.temporaryDirectory
   let uniqueName = UUID().uuidString
   let dirURL = baseURL.appendingPathComponent("lc-\(uniqueName)", isDirectory: true)
   try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: dirURL) }
 
-  try compileCode(code: code, tmpDir: dirURL, optimize: optimize)
+  try compileCode(code: code, tmpDir: dirURL, opt: opt)
 
   let exeURL = dirURL.appending(component: "a.out")
 
@@ -701,7 +705,7 @@ func runCode(code: String, stdin: Data, optimize: Bool) throws -> Data {
   return finalData
 }
 
-func compileCode(code: String, tmpDir: URL, optimize: Bool) throws {
+func compileCode(code: String, tmpDir: URL, opt: OptLevel) throws {
   let match = try Parser.parse(code)
   var ast = AST(match: match)
 
@@ -717,7 +721,11 @@ func compileCode(code: String, tmpDir: URL, optimize: Bool) throws {
   var cfg = CFG(ast: ast)
   cfg.add(ast: StandardLibrary.ast)
   cfg.insertPhiAndNumberVars()
-  if optimize {
+  if opt != .none {
+    cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
+  }
+  if opt == .basicWithInlining {
+    cfg.inlineSingleCalls()
     cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
   }
   try cfg.checkMissingReturns()

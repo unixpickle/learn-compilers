@@ -253,7 +253,8 @@ extension CFG {
     let (newNodes, entry, exit) = duplicate(function: fn)
     for node in newNodes {
       var newCode = nodeCode[node]!
-      for (i, var inst) in newCode.instructions.enumerated() {
+      var newInsts = [CFG.Inst]()
+      for var inst in newCode.instructions {
         switch inst.op {
         case .funcArg(let target, let idx):
           inst.op = .copy(target, arguments[idx])
@@ -267,8 +268,9 @@ extension CFG {
           continue
         default: ()
         }
-        newCode.instructions[i] = inst
+        newInsts.append(inst)
       }
+      newCode.instructions = newInsts
       nodeCode[node] = newCode
     }
 

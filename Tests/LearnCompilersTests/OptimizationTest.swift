@@ -186,6 +186,24 @@ import Testing
   }
 }
 
+@Test func testInlineBasicOptimizationWithVoids() throws {
+  let code = """
+    fn foo(x: int) {
+      print_int(x)
+    }
+
+    fn main(x: int, y: int) -> int {
+      foo(x)
+      return!(y)
+    }
+    """
+
+  let optCFGs = try codeToCFGs(code, opt: .basicWithInlining, count: 2)
+  let optCFG = optCFGs[0]
+  verifyCFGInvariants(cfg: optCFG)
+  checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
+}
+
 @Test func testBasicOptimizationFibonacci() throws {
   for opt in [OptLevel.basic, .basicWithInlining] {
     for code in FibonacciImplementations {
@@ -211,6 +229,7 @@ import Testing
 func verifyCFGInvariants(cfg: CFG) {
   checkSSA(cfg: cfg)
   checkPhi(cfg: cfg)
+  checkReturns(cfg: cfg)
 
   #expect(cfg.nodes == Set(cfg.nodeCode.keys))
   let reachable = Set(cfg.functions.values.flatMap { cfg.dfsFrom(node: $0) })
