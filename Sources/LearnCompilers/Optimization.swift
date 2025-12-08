@@ -78,9 +78,20 @@ extension CFG {
           newCode.instructions.remove(at: i)
           nodeCode[node] = newCode
 
-          for n in nodes {
-            nodeCode[n] = nodeCode[n]!.replacing(arg: .variable(variable), with: newArgument)
+          for (n, code) in nodeCode {
+            nodeCode[n] = code.replacing(arg: .variable(variable), with: newArgument)
           }
+
+          // We might have replaced a user-defined variable with a temporary
+          // variable, in which case we prefer to retain the user-defined one.
+          if case .variable(let tmpVar) = newArgument,
+            tmpVar.variable.isTemporary && !variable.variable.isTemporary
+          {
+            for (n, code) in nodeCode {
+              nodeCode[n] = code.replacing(tmpVar, with: variable)
+            }
+          }
+
           newCode = nodeCode[node]!
 
           converged = false
@@ -321,12 +332,7 @@ extension CFG {
           if let newV = newVariables[v.variable] {
             inst.op = inst.op.replacing(v, with: SSAVariable(variable: newV, version: v.version))
           } else {
-            let newV = Variable(
-              declarationPosition: v.variable.declarationPosition,
-              name: v.variable.name,
-              type: v.variable.type,
-              isArgument: v.variable.isArgument
-            )
+            let newV = v.variable.duplicate()
             newVariables[v.variable] = newV
             inst.op = inst.op.replacing(v, with: SSAVariable(variable: newV, version: v.version))
           }

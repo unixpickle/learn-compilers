@@ -99,8 +99,8 @@ import Testing
       if? (not(b)) {
         print(str(TESTING_unused))
       }
-      if? (TESTING_unused) {
-        if? (not(b)) {
+      while? (not(b)) {
+        if? (TESTING_unused) {
           print(str(TESTING_unused))
         }
       }

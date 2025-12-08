@@ -133,6 +133,17 @@ public struct CFG {
         }
       )
     }
+
+    public func replacing(
+      _ v: SSAVariable,
+      with r: SSAVariable
+    ) -> NodeCode {
+      NodeCode(
+        instructions: instructions.map { inst in
+          .init(position: inst.position, op: inst.op.replacing(v, with: r))
+        }
+      )
+    }
   }
 
   public class Node: PointerHashable, CustomStringConvertible {
@@ -752,7 +763,12 @@ public struct CFG {
   private mutating func createTmp(position: Position, type: Variable.DataType) -> Variable {
     let id = tmpCounter
     tmpCounter += 1
-    return Variable(declarationPosition: position, name: "tmp[\(id)]", type: type)
+    return Variable(
+      declarationPosition: position,
+      name: "tmp[\(id)]",
+      type: type,
+      isTemporary: true
+    )
   }
 
   public mutating func addNode() -> Node {

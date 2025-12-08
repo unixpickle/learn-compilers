@@ -62,6 +62,7 @@ public final class Variable: PointerHashable, CustomStringConvertible {
   public let name: String
   public let type: DataType
   public let isArgument: Bool
+  public let isTemporary: Bool
 
   public var description: String {
     "Variable(name=\(name), type=\(type), isArgument=\(isArgument), pos=\(declarationPosition))"
@@ -71,12 +72,24 @@ public final class Variable: PointerHashable, CustomStringConvertible {
     declarationPosition p: Position,
     name n: String,
     type t: DataType,
-    isArgument i: Bool = false
+    isArgument i: Bool = false,
+    isTemporary it: Bool = false
   ) {
     declarationPosition = p
     name = n
     type = t
     isArgument = i
+    isTemporary = it
+  }
+
+  public func duplicate() -> Variable {
+    Variable(
+      declarationPosition: declarationPosition,
+      name: name,
+      type: type,
+      isArgument: isArgument,
+      isTemporary: isTemporary
+    )
   }
 }
 
