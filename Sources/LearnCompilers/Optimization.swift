@@ -18,6 +18,9 @@ extension CFG {
       if eliminateUnusedVariables() {
         converged = false
       }
+      if mergeNodes() {
+        converged = false
+      }
       if !converged {
         changed = true
       }
@@ -227,6 +230,60 @@ extension CFG {
     return succeeded
   }
 
+  /// Reduce the number of nodes by merging nodes with their parents
+  /// when possible.
+  @discardableResult
+  public mutating func mergeNodes() -> Bool {
+    var changed = false
+    for node in nodes.sorted(by: { $0.id < $1.id }) {
+      let parents = predecessors[node, default: []]
+      if parents.count != 1 {
+        continue
+      }
+      let parent = parents.first!
+      let parentChildren = successors(of: parent)
+      if parentChildren.count != 1 {
+        continue
+      }
+
+      changed = true
+
+      assert(parentChildren == [node], "graph connectivity is invalid")
+
+      let parentCode = nodeCode[parent]!
+      let checkCount = parentCode.instructions.count { inst in
+        if case .check = inst.op {
+          true
+        } else {
+          false
+        }
+      }
+      assert(checkCount == 0, "a node with one child cannot use a check instruction")
+
+      let childCode = nodeCode[node]!
+      let phiCount = childCode.instructions.count { inst in
+        if case .phi = inst.op {
+          true
+        } else {
+          false
+        }
+      }
+      if phiCount != 0 {
+        // Nodes with one parent don't need phi functions, but we don't want
+        // to eliminate these phis since one of them might be an incomplete
+        // return variable that we want to raise an error for later.
+        continue
+      }
+
+      nodeCode[parent]!.instructions.append(contentsOf: childCode.instructions)
+      moveSuccessors(from: node, to: parent)
+      predecessors.removeValue(forKey: node)
+      nodeCode.removeValue(forKey: node)
+      nodes.remove(node)
+    }
+    return changed
+  }
+
   /// Inline all functions which are only called once, removing the
   /// function definitions that were inlined.
   public mutating func inlineSingleCalls() {
@@ -295,25 +352,7 @@ extension CFG {
       successors[exit] = .single(newTail)
       predecessors[newTail] = [exit]
     }
-    if let succ = successors[node] {
-      successors[newTail] = succ
-      for n in succ.nodes {
-        predecessors[n] = Set(predecessors[n]!.map { $0 == node ? newTail : $0 })
-
-        // Replace the source node in phi functions of this successor.
-        var newCode = nodeCode[n]!
-        for (i, var inst) in newCode.instructions.enumerated() {
-          if case .phi(let target, var branches) = inst.op,
-            let v = branches.removeValue(forKey: node)
-          {
-            branches[newTail] = v
-            inst.op = .phi(target, branches)
-            newCode.instructions[i] = inst
-          }
-        }
-        nodeCode[n] = newCode
-      }
-    }
+    moveSuccessors(from: node, to: newTail)
     successors[node] = .single(entry)
     nodeCode[node]!.instructions = Array(code.instructions[..<instruction])
   }
@@ -387,6 +426,28 @@ extension CFG {
     let exitNode = exitNodes.first!
 
     return (nodes: copiedNodes, entry: entryNode, exit: exitNode)
+  }
+
+  internal mutating func moveSuccessors(from: Node, to: Node) {
+    for successor in successors(of: from) {
+      predecessors[successor] = Set(predecessors[successor]!.map { $0 == from ? to : $0 })
+      var newCode = nodeCode[successor]!
+      for (i, var inst) in newCode.instructions.enumerated() {
+        if case .phi(let target, let branches) = inst.op {
+          inst.op = .phi(
+            target,
+            Dictionary(
+              uniqueKeysWithValues: branches.map { (source, val) in
+                (source == from ? to : source, val)
+              }
+            )
+          )
+          newCode.instructions[i] = inst
+        }
+      }
+      nodeCode[successor] = newCode
+    }
+    successors[to] = successors.removeValue(forKey: from)
   }
 
 }
