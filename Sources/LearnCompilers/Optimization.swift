@@ -21,6 +21,9 @@ extension CFG {
       if mergeNodes() {
         converged = false
       }
+      if eliminateEmptyNodes() {
+        converged = false
+      }
       if !converged {
         changed = true
       }
@@ -276,7 +279,60 @@ extension CFG {
       }
 
       nodeCode[parent]!.instructions.append(contentsOf: childCode.instructions)
-      moveSuccessors(from: node, to: parent)
+      moveSuccessors(from: node, to: [parent])
+      predecessors.removeValue(forKey: node)
+      nodeCode.removeValue(forKey: node)
+      nodes.remove(node)
+    }
+    return changed
+  }
+
+  /// Remove empty nodes and reconnect their predecessors to their successor.
+  @discardableResult
+  public mutating func eliminateEmptyNodes() -> Bool {
+    var changed = false
+    for node in nodes.sorted(by: { $0.id < $1.id }) {
+      let code = nodeCode[node]!
+      if !code.instructions.isEmpty {
+        continue
+      }
+
+      let parents = Array(predecessors[node, default: []])
+      if parents.isEmpty {
+        // This is a function entrypoint.
+        continue
+      }
+
+      // Sometimes an empty node might still be necessary because a successor's
+      // phi function distinguishes between this node and one of its parents.
+      //
+      // For example, imagine we have an empty node B in the graph
+      //
+      //   A -> B -> C
+      //   |---------^
+      //
+      // If C has a phi function where A maps to a different value than B, then
+      // we can't eliminate B, since A might use a branch to select a value in C.
+      var phiDistinguished = false
+      for succ in successors(of: node) {
+        for inst in nodeCode[succ]!.instructions {
+          if case .phi(_, let branches) = inst.op {
+            for parent in parents {
+              if branches[parent] != nil && branches[parent] != branches[node] {
+                phiDistinguished = true
+                break
+              }
+            }
+          }
+        }
+      }
+      if phiDistinguished {
+        continue
+      }
+
+      changed = true
+
+      moveSuccessors(from: node, to: parents)
       predecessors.removeValue(forKey: node)
       nodeCode.removeValue(forKey: node)
       nodes.remove(node)
@@ -352,7 +408,7 @@ extension CFG {
       successors[exit] = .single(newTail)
       predecessors[newTail] = [exit]
     }
-    moveSuccessors(from: node, to: newTail)
+    moveSuccessors(from: node, to: [newTail])
     successors[node] = .single(entry)
     nodeCode[node]!.instructions = Array(code.instructions[..<instruction])
   }
@@ -428,26 +484,35 @@ extension CFG {
     return (nodes: copiedNodes, entry: entryNode, exit: exitNode)
   }
 
-  internal mutating func moveSuccessors(from: Node, to: Node) {
+  internal mutating func moveSuccessors(from: Node, to: [Node]) {
     for successor in successors(of: from) {
-      predecessors[successor] = Set(predecessors[successor]!.map { $0 == from ? to : $0 })
+      predecessors[successor] = Set(to + predecessors[successor]!.filter { $0 != from })
       var newCode = nodeCode[successor]!
       for (i, var inst) in newCode.instructions.enumerated() {
-        if case .phi(let target, let branches) = inst.op {
-          inst.op = .phi(
-            target,
-            Dictionary(
-              uniqueKeysWithValues: branches.map { (source, val) in
-                (source == from ? to : source, val)
+        if case .phi(let target, var branches) = inst.op {
+          if let fromValue = branches.removeValue(forKey: from) {
+            for t in to {
+              if let old = branches[t] {
+                assert(old == fromValue)
               }
-            )
-          )
+              branches[t] = fromValue
+            }
+          }
+          inst.op = .phi(target, branches)
           newCode.instructions[i] = inst
         }
       }
       nodeCode[successor] = newCode
     }
-    successors[to] = successors.removeValue(forKey: from)
+
+    let oldSucc = successors.removeValue(forKey: from)
+    for t in to {
+      if let s = Successors.replace(node: from, in: successors[t], with: oldSucc) {
+        successors[t] = s
+      } else {
+        successors.removeValue(forKey: t)
+      }
+    }
   }
 
 }

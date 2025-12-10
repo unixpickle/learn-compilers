@@ -162,10 +162,37 @@ public struct CFG {
     case single(Node)
     case branch(ifFalse: Node, ifTrue: Node)
 
-    var nodes: [Node] {
+    public var nodes: [Node] {
       switch self {
       case .single(let n): [n]
       case .branch(let a, let b): [a, b]
+      }
+    }
+
+    internal static func replace(
+      node: Node,
+      in original: Successors?,
+      with replacement: Successors?
+    ) -> Successors? {
+      switch original {
+      case .none:
+        return replacement
+      case .single(let originalNode):
+        assert(originalNode == node)
+        return replacement
+      case .branch(let originalIfFalse, let originalIfTrue):
+        assert(originalIfFalse == node || originalIfTrue == node)
+        switch replacement {
+        case .single(let replacementNode):
+          return .branch(
+            ifFalse: originalIfFalse == node ? replacementNode : originalIfFalse,
+            ifTrue: originalIfTrue == node ? replacementNode : originalIfTrue
+          )
+        case .branch:
+          fatalError("cannot replace one half of a branch with another branch")
+        case .none:
+          return .single(originalIfFalse == node ? originalIfTrue : originalIfFalse)
+        }
       }
     }
   }
