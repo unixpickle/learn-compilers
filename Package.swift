@@ -16,6 +16,9 @@ let package = Package(
     .executable(
       name: "Compile",
       targets: ["Compile"]),
+    .executable(
+      name: "Interpret",
+      targets: ["Interpret"]),
   ],
   dependencies: [
     // Add the local dependency
@@ -31,6 +34,10 @@ let package = Package(
     ),
     .executableTarget(
       name: "Compile",
+      dependencies: ["LearnCompilers"]
+    ),
+    .executableTarget(
+      name: "Interpret",
       dependencies: ["LearnCompilers"]
     ),
     .testTarget(

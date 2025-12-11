@@ -89,75 +89,75 @@ public struct BackendAArch64: Backend {
     var code: String {
       switch self {
       case .globl(let name):
-        return "  .globl \(name)"
+        "  .globl \(name)"
       case .alignPow2(let n):
-        return "  .p2align \(n)"
+        "  .p2align \(n)"
       case .symbol(let name):
-        return "\(name):"
+        "\(name):"
       case .mov(let target, let source):
-        return "  mov \(target), \(source)"
+        "  mov \(target), \(source)"
       case .movk(let target, let value, let shift):
-        return "  movk \(target), #\(value), lsl #\(shift)"
+        "  movk \(target), #\(value), lsl #\(shift)"
       case .sub(let target, let a, let b):
-        return "  sub \(target), \(a), \(b)"
+        "  sub \(target), \(a), \(b)"
       case .add(let target, let a, let b):
-        return "  add \(target), \(a), \(b)"
+        "  add \(target), \(a), \(b)"
       case .addSymbol(let target, let a, let b):
-        return "  add \(target), \(a), \(b)"
+        "  add \(target), \(a), \(b)"
       case .and(let target, let a, let b):
-        return "  and \(target), \(a), \(b)"
+        "  and \(target), \(a), \(b)"
       case .orr(let target, let a, let b):
-        return "  orr \(target), \(a), \(b)"
+        "  orr \(target), \(a), \(b)"
       case .mul(let target, let a, let b):
-        return "  mul \(target), \(a), \(b)"
+        "  mul \(target), \(a), \(b)"
       case .sdiv(let target, let a, let b):
-        return "  sdiv \(target), \(a), \(b)"
+        "  sdiv \(target), \(a), \(b)"
       case .msub(let target, let a, let b, let c):
-        return "  msub \(target), \(a), \(b), \(c)"
+        "  msub \(target), \(a), \(b), \(c)"
       case .ldr(let target, let source):
-        return "  ldr \(target), \(addrStr(source))"
+        "  ldr \(target), \(addrStr(source))"
       case .ldrb(let target, let source):
-        return "  ldrb \(target), \(addrStr(source))"
+        "  ldrb \(target), \(addrStr(source))"
       case .str(let source, let target):
-        return "  str \(source), \(addrStr(target))"
+        "  str \(source), \(addrStr(target))"
       case .strb(let source, let target):
-        return "  strb \(source), \(addrStr(target))"
+        "  strb \(source), \(addrStr(target))"
       case .ldp(let t1, let t2, let source):
-        return "  ldp \(t1), \(t2), \(addrStr(source))"
+        "  ldp \(t1), \(t2), \(addrStr(source))"
       case .stp(let s1, let s2, let target):
-        return "  stp \(s1), \(s2), \(addrStr(target))"
+        "  stp \(s1), \(s2), \(addrStr(target))"
       case .adrp(let reg, let symbol):
-        return "  adrp \(reg), \(symbol)"
+        "  adrp \(reg), \(symbol)"
       case .sxtw(let r1, let r2):
-        return "  sxtw \(r1), \(r2)"
+        "  sxtw \(r1), \(r2)"
       case .cmp(let reg, let value):
-        return "  cmp \(reg), \(value)"
+        "  cmp \(reg), \(value)"
       case .cset(let reg, let cond):
-        return "  cset \(reg), \(cond)"
+        "  cset \(reg), \(cond)"
       case .b(let label):
-        return "  b \(label)"
+        "  b \(label)"
       case .bl(let label):
-        return "  bl \(label)"
+        "  bl \(label)"
       case .bEq(let label):
-        return "  b.eq \(label)"
+        "  b.eq \(label)"
       case .bNe(let label):
-        return "  b.ne \(label)"
+        "  b.ne \(label)"
       case .bGe(let label):
-        return "  b.ge \(label)"
+        "  b.ge \(label)"
       case .bLe(let label):
-        return "  b.le \(label)"
+        "  b.le \(label)"
       case .ret:
-        return "  ret"
+        "  ret"
       case .cfiStartProc:
-        return "  .cfi_startproc"
+        "  .cfi_startproc"
       case .cfiEndProc:
-        return "  .cfi_endproc"
+        "  .cfi_endproc"
       case .cfiDefCFA(let reg, let x):
-        return "  .cfi_def_cfa \(reg), \(x)"
+        "  .cfi_def_cfa \(reg), \(x)"
       case .cfiOffset(let reg, let x):
-        return "  .cfi_offset \(reg), \(x)"
+        "  .cfi_offset \(reg), \(x)"
       case .comment(let x):
-        return "  ; \(x)"
+        x.split(separator: "\n").map { "  ; \($0)" }.joined(separator: "\n")
       }
     }
   }

@@ -6,13 +6,12 @@ struct CompileApp {
   static func main() {
     let args = CommandLine.arguments
 
-    guard args.count == 3 else {
-      print("Usage: Compile <input-file> <output-file>")
+    guard args.count == 2 else {
+      print("Usage: Interpret <input-file>")
       exit(1)
     }
 
     let inputPath = args[1]
-    let outputPath = args[2]
 
     do {
       let inputData = try String(contentsOfFile: inputPath, encoding: .utf8)
@@ -48,13 +47,19 @@ struct CompileApp {
       cfg.performBasicOptimizations(fnReduction: BuiltInFunction.reduce)
       try cfg.checkMissingReturns()
 
-      let outputString =
-        if outputPath.hasSuffix(".cfg.txt") {
-          cfg.description
-        } else {
-          try BackendAArch64().compileAssembly(cfg: cfg)
-        }
-      try outputString.write(toFile: outputPath, atomically: true, encoding: .utf8)
+      guard
+        let mainFunction = cfg.functions.keys.compactMap({ key in
+          key.name == "main" && key.signature.args.isEmpty ? key : nil
+        })
+        .first
+      else {
+        print("Error: no main function with no arguments is defined")
+        exit(1)
+      }
+      let interp = try Interpreter(cfg: cfg, entrypoint: mainFunction, arguments: [])
+      if case .integer(let x) = interp.run() {
+        exit(Int32(x))
+      }
     } catch {
       print("Compilation failed with error:")
       print(error)

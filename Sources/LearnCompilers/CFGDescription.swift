@@ -37,7 +37,7 @@ extension CFG: CustomStringConvertible {
   private func describeNode(node: Node, indent: String) -> String {
     var insts = [String]()
     for inst in nodeCode[node]!.instructions {
-      insts.append("\(inst)")
+      insts.append(contentsOf: inst.description.split(separator: "\n").map(String.init))
     }
     switch successors[node] {
     case .branch(let ifFalse, let ifTrue):
@@ -60,16 +60,17 @@ extension CFG.Inst: CustomStringConvertible {
 extension CFG.Inst.Op: CustomStringConvertible {
   public var description: String {
     switch self {
-    case .funcArg(let v, let idx): ".funcArg(target=\(v), idx=\(idx))"
+    case .funcArg(let v, let idx): ".funcArg(\n  target=\(v),\n  idx=\(idx)\n)"
     case .check(let arg): ".check(\(arg))"
-    case .copy(let target, let source): ".copy(target=\(target), source=\(source))"
-    case .call(let fn, let args): ".call(\(fn), args=\(args))"
+    case .copy(let target, let source): ".copy(\n  target=\(target),\n  source=\(source)\n)"
+    case .call(let fn, let args):
+      ".call(\n  fn=\(fn),\n  args=[\n\(args.map { "    \($0)" }.joined(separator: ",\n"))\n  ]\n)"
     case .callAndStore(let target, let fn, let args):
-      ".callAndStore(\(target), \(fn), args=\(args))"
+      ".callAndStore(\n  target=\(target)\n  fn=\(fn),\n  args=[\n\(args.map { "    \($0)" }.joined(separator: ",\n"))\n  ]\n)"
     case .returnValue(let arg): ".returnValue(\(arg))"
     case .returnVoid: ".returnVoid"
     case .phi(let target, let branches):
-      ".phi(\(target), branches=\(branches.sorted(by: { $0.key.id < $1.key.id })))"
+      ".phi(\n  \(target),\n  branches=[\n\(branches.sorted(by: { $0.key.id < $1.key.id }).map { "    \($0)" }.joined(separator: ",\n") )\n  ]\n)"
     }
   }
 }

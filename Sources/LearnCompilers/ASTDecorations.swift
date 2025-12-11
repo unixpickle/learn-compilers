@@ -95,8 +95,8 @@ public final class Variable: PointerHashable, CustomStringConvertible {
 
 public final class Function: Hashable, Sendable, CustomStringConvertible {
   public struct Signature: Hashable, Sendable {
-    let args: [Variable.DataType]
-    let ret: Variable.DataType?
+    public let args: [Variable.DataType]
+    public let ret: Variable.DataType?
   }
 
   public let declarationPosition: Position
