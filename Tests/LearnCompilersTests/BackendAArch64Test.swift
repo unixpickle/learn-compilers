@@ -128,6 +128,43 @@ import Testing
   }
 }
 
+@Test func testBackendAArch64Shifts() throws {
+  let code = """
+    fn main() -> int {
+      while? (1) {
+        x: str = readline()
+        if? (not(x)) {
+          break!()
+        }
+        y: int = parse_int(x)
+        str_free(x)
+        x = readline()
+        shift: int = parse_int(x)
+        str_free(x)
+        print_int(shl(y, shift))
+        println("")
+        print_int(shr(y, shift))
+        println("")
+      }
+      return!(0)
+    }
+    """
+  var expectedOut = ""
+  var inputs = ""
+  for _ in 0..<20 {
+    let x = Int64(bitPattern: UInt64.random(in: UInt64.min...UInt64.max))
+    let shift = Int.random(in: 0...63)
+    inputs += "\(x)\n"
+    inputs += "\(shift)\n"
+    expectedOut += "\(x << shift)\n"
+    expectedOut += "\(x >> shift)\n"
+  }
+  for opt in [OptLevel.none, .basic, .basicWithInlining] {
+    let output = try runCode(code: code, stdin: Data(inputs.utf8), opt: opt)
+    #expect(output == Data(expectedOut.utf8))
+  }
+}
+
 @Test func testBackendAArch64Brainfck() throws {
   let code = """
     fn comment(x: str) {}

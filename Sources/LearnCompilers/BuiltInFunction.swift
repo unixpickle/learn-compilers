@@ -9,8 +9,11 @@ public enum BuiltInFunction: Hashable, Sendable {
   case lt
   case gt
   case len
-  case or
   case and
+  case or
+  case xor
+  case shl
+  case shr
   case putc
   case getc
   case strAlloc
@@ -30,8 +33,11 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .lt: "lt"
     case .gt: "gt"
     case .len: "len"
-    case .or: "or"
     case .and: "and"
+    case .or: "or"
+    case .xor: "xor"
+    case .shl: "shl"
+    case .shr: "shr"
     case .putc: "putc"
     case .getc: "getc"
     case .strAlloc: "str_alloc"
@@ -55,6 +61,9 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .len: .init(args: [.string], ret: .integer)
     case .or: .init(args: [.integer, .integer], ret: .integer)
     case .and: .init(args: [.integer, .integer], ret: .integer)
+    case .xor: .init(args: [.integer, .integer], ret: .integer)
+    case .shl: .init(args: [.integer, .integer], ret: .integer)
+    case .shr: .init(args: [.integer, .integer], ret: .integer)
     case .putc: .init(args: [.integer], ret: nil)
     case .getc: .init(args: [], ret: .integer)
     case .strAlloc: .init(args: [.integer], ret: .string)
@@ -78,6 +87,9 @@ public enum BuiltInFunction: Hashable, Sendable {
       .len,
       .or,
       .and,
+      .xor,
+      .shl,
+      .shr,
       .putc,
       .getc,
       .strAlloc,
@@ -128,6 +140,18 @@ public enum BuiltInFunction: Hashable, Sendable {
       } else if case .constInt(0) = args[0] {
         return .constInt(0)
       }
+    case .div:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x / y)
+      } else if case .constInt(1) = args[1] {
+        return args[0]
+      }
+    case .mod:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x % y)
+      } else if case .constInt(1) = args[1] {
+        return .constInt(0)
+      }
     case .lt:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
         return .constInt(x < y ? 1 : 0)
@@ -143,6 +167,18 @@ public enum BuiltInFunction: Hashable, Sendable {
     case .or:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
         return .constInt(x | y)
+      }
+    case .xor:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x ^ y)
+      }
+    case .shl:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x << y)
+      }
+    case .shr:
+      if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
+        return .constInt(x >> y)
       }
     case .eqInt:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {

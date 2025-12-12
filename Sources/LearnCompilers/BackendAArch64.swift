@@ -58,9 +58,12 @@ public struct BackendAArch64: Backend {
     case addSymbol(Register, Register, String)
     case and(Register, Register, RegOrInt)
     case orr(Register, Register, RegOrInt)
+    case eor(Register, Register, RegOrInt)
     case mul(Register, Register, RegOrInt)
     case sdiv(Register, Register, RegOrInt)
     case msub(Register, Register, Register, Register)
+    case lsl(Register, Register, RegOrInt)
+    case asr(Register, Register, RegOrInt)
     case ldr(Register, Addr)
     case ldrb(Register, Addr)
     case str(Register, Addr)
@@ -108,12 +111,28 @@ public struct BackendAArch64: Backend {
         "  and \(target), \(a), \(b)"
       case .orr(let target, let a, let b):
         "  orr \(target), \(a), \(b)"
+      case .eor(let target, let a, let b):
+        "  eor \(target), \(a), \(b)"
       case .mul(let target, let a, let b):
         "  mul \(target), \(a), \(b)"
       case .sdiv(let target, let a, let b):
         "  sdiv \(target), \(a), \(b)"
       case .msub(let target, let a, let b, let c):
         "  msub \(target), \(a), \(b), \(c)"
+      case .lsl(let target, let a, let b):
+        switch b {
+        case .reg(let r):
+          "  lslv \(target), \(a), \(r)"
+        case .int(let c):
+          "  lsl \(target), \(a), \(c)"
+        }
+      case .asr(let target, let a, let b):
+        switch b {
+        case .reg(let r):
+          "  asrv \(target), \(a), \(r)"
+        case .int(let c):
+          "  asr \(target), \(a), \(c)"
+        }
       case .ldr(let target, let source):
         "  ldr \(target), \(addrStr(source))"
       case .ldrb(let target, let source):
@@ -653,6 +672,18 @@ public struct BackendAArch64: Backend {
       case .or:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
           [.orr(dst, a, .reg(b))]
+        }
+      case .xor:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.eor(dst, a, .reg(b))]
+        }
+      case .shl:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.lsl(dst, a, .reg(b))]
+        }
+      case .shr:
+        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
+          [.asr(dst, a, .reg(b))]
         }
       case .mul:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in

@@ -287,10 +287,17 @@ open class Interpreter {
       return .integer(args[0].integer! > args[1].integer! ? 1 : 0)
     case .len:
       return .integer(Int64(args[0].string!.count))
-    case .or:
-      return .integer(args[0].integer! | args[1].integer!)
     case .and:
       return .integer(args[0].integer! & args[1].integer!)
+    case .or:
+      return .integer(args[0].integer! | args[1].integer!)
+    case .xor:
+      return .integer(args[0].integer! ^ args[1].integer!)
+    case .shl:
+      return .integer(args[0].integer! << args[1].integer!)
+    case .shr:
+      return .integer(args[0].integer! >> args[1].integer!)
+
     case .putc:
       print(Character(UnicodeScalar(UInt8(args[0].integer!))), terminator: "")
       return nil

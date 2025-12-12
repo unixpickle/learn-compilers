@@ -108,6 +108,17 @@ public final class StandardLibrary {
       if? (not(len(x))) {
         return!(-1)
       }
+      if? (eq(str_get(x, 0), str_get("-", 0))) {
+        sub_x: str = str_alloc(sub(len(x), 1))
+        i: int = 1
+        while? (lt(i, len(x))) {
+          str_set(sub_x, sub(i, 1), str_get(x, i))
+          i = add(i, 1)
+        }
+        sub_i: int = parse_int(sub_x)
+        str_free(sub_x)
+        return!(mul(sub_i, -1))
+      }
       result: int = 0
       i: int = 0
       while? (lt(i, len(x))) {
