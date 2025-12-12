@@ -1,0 +1,141 @@
+CFG(
+  fn main {
+    node6:
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[6], type=int, isArgument=false, pos=addmul:13:12), version=0)
+        fn=Function(name=getc, args=[] ret=Optional(int)),
+        args=[
+        ]
+      )
+      .copy(
+        target=SSAVariable(Variable(name=x, type=int, isArgument=false, pos=addmul:13:3), version=0),
+        source=.variable(SSAVariable(Variable(name=tmp[6], type=int, isArgument=false, pos=addmul:13:12), version=0))
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[7], type=int, isArgument=false, pos=addmul:14:11), version=0)
+        fn=Function(name=mul_add, args=[int, int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=x, type=int, isArgument=false, pos=addmul:13:3), version=0)),
+          .constInt(2),
+          .constInt(3)
+        ]
+      )
+      .copy(
+        target=SSAVariable(Variable(name=<return value>, type=int, isArgument=false, pos=addmul:12:10), version=0),
+        source=.variable(SSAVariable(Variable(name=tmp[7], type=int, isArgument=false, pos=addmul:14:11), version=0))
+      )
+      goto node7
+
+    node7:
+      .returnValue(.variable(SSAVariable(Variable(name=<return value>, type=int, isArgument=false, pos=addmul:12:10), version=0)))
+  }
+  fn mul_add {
+    node0:
+      .funcArg(
+        target=SSAVariable(Variable(name=x, type=int, isArgument=true, pos=addmul:1:12), version=0),
+        idx=0
+      )
+      .funcArg(
+        target=SSAVariable(Variable(name=y, type=int, isArgument=true, pos=addmul:1:19), version=0),
+        idx=1
+      )
+      .funcArg(
+        target=SSAVariable(Variable(name=z, type=int, isArgument=true, pos=addmul:1:27), version=0),
+        idx=2
+      )
+      .copy(
+        target=SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=0),
+        source=.variable(SSAVariable(Variable(name=x, type=int, isArgument=true, pos=addmul:1:12), version=0))
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[0], type=int, isArgument=false, pos=addmul:3:12), version=0)
+        fn=Function(name=eq, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=y, type=int, isArgument=true, pos=addmul:1:19), version=0)),
+          .constInt(1)
+        ]
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[1], type=int, isArgument=false, pos=addmul:3:8), version=0)
+        fn=Function(name=not, args=[int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=tmp[0], type=int, isArgument=false, pos=addmul:3:12), version=0))
+        ]
+      )
+      .check(.variable(SSAVariable(Variable(name=tmp[1], type=int, isArgument=false, pos=addmul:3:8), version=0)))
+      branch true=node2 true=node3
+
+    node3:
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[2], type=int, isArgument=false, pos=addmul:4:14), version=0)
+        fn=Function(name=mul, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=0)),
+          .variable(SSAVariable(Variable(name=y, type=int, isArgument=true, pos=addmul:1:19), version=0))
+        ]
+      )
+      .copy(
+        target=SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=1),
+        source=.variable(SSAVariable(Variable(name=tmp[2], type=int, isArgument=false, pos=addmul:4:14), version=0))
+      )
+      goto node2
+
+    node2:
+      .phi(
+        SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=2),
+        branches=[
+          (key: Node(0), value: .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=0))),
+          (key: Node(3), value: .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=1)))
+        ]
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[3], type=int, isArgument=false, pos=addmul:6:12), version=0)
+        fn=Function(name=eq, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=z, type=int, isArgument=true, pos=addmul:1:27), version=0)),
+          .constInt(0)
+        ]
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[4], type=int, isArgument=false, pos=addmul:6:8), version=0)
+        fn=Function(name=not, args=[int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=tmp[3], type=int, isArgument=false, pos=addmul:6:12), version=0))
+        ]
+      )
+      .check(.variable(SSAVariable(Variable(name=tmp[4], type=int, isArgument=false, pos=addmul:6:8), version=0)))
+      branch true=node4 true=node5
+
+    node5:
+      .callAndStore(
+        target=SSAVariable(Variable(name=tmp[5], type=int, isArgument=false, pos=addmul:7:14), version=0)
+        fn=Function(name=add, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=2)),
+          .variable(SSAVariable(Variable(name=z, type=int, isArgument=true, pos=addmul:1:27), version=0))
+        ]
+      )
+      .copy(
+        target=SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=3),
+        source=.variable(SSAVariable(Variable(name=tmp[5], type=int, isArgument=false, pos=addmul:7:14), version=0))
+      )
+      goto node4
+
+    node4:
+      .phi(
+        SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=4),
+        branches=[
+          (key: Node(2), value: .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=2))),
+          (key: Node(5), value: .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=3)))
+        ]
+      )
+      .copy(
+        target=SSAVariable(Variable(name=<return value>, type=int, isArgument=false, pos=addmul:1:35), version=0),
+        source=.variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=addmul:2:3), version=4))
+      )
+      goto node1
+
+    node1:
+      .returnValue(.variable(SSAVariable(Variable(name=<return value>, type=int, isArgument=false, pos=addmul:1:35), version=0)))
+  }
+)

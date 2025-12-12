@@ -1,0 +1,15 @@
+fn mul_add(x: int, y: int, z: int) -> int {
+  result: int = x
+  if? (not(eq(y, 1))) {
+    result = mul(result, y)
+  }
+  if? (not(eq(z, 0))) {
+    result = add(result, z)
+  }
+  return!(result)
+}
+
+fn main() -> int {
+  x: int = getc()
+  return!(mul_add(x, 2, 3))
+}

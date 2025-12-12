@@ -140,48 +140,60 @@ extension CFG {
         } else {
           (ifTrue, ifFalse)
         }
+      assert(keepBranch != removeBranch, "cannot branch into the same node twice")
       code.instructions.removeLast()
       nodeCode[node] = code
 
       predecessors[removeBranch]!.remove(node)
       successors[node] = .single(keepBranch)
+      removePhi(source: node, in: removeBranch)
 
-      pruneIfUnreachable(removeBranch)
+      // We might have made some nodes (including loop cycles) unreachable,
+      // so we should delete those nodes and thus their corresponding entries
+      // in future phi functions.
+      removeUnreachable()
+
       succeeded = true
     }
     return succeeded
   }
 
-  private mutating func pruneIfUnreachable(_ node: Node) {
-    if !predecessors[node, default: []].isEmpty {
-      return
+  private mutating func removeUnreachable() {
+    var reachable = Set<Node>()
+    for node in functions.values {
+      reachable.formUnion(dfsFrom(node: node))
     }
-
-    var queue = [node]
-    while let next = queue.popLast() {
-      predecessors.removeValue(forKey: next)
-      nodes.remove(next)
-      nodeCode.removeValue(forKey: next)
-      for successor in successors(of: next) {
-        predecessors[successor]!.remove(next)
-
-        if predecessors[successor]!.isEmpty {
-          queue.append(successor)
-        } else {
-          // Remove relevant arguments to successor phi functions
-          var succCode = nodeCode[successor]!
-          for (i, var inst) in succCode.instructions.enumerated() {
-            if case .phi(let target, var sources) = inst.op, sources[next] != nil {
-              sources.removeValue(forKey: next)
-              inst.op = .phi(target, sources)
-              succCode.instructions[i] = inst
-            }
+    for node in nodes {
+      if reachable.contains(node) {
+        continue
+      }
+      nodes.remove(node)
+      nodeCode.removeValue(forKey: node)
+      predecessors.removeValue(forKey: node)
+      if let succs = successors.removeValue(forKey: node) {
+        for succ in succs.nodes {
+          if !reachable.contains(succ) {
+            // No point in removing this node as a predecessor since the node
+            // will also be removed, and we don't know if it already was.
+            continue
           }
-          nodeCode[successor] = succCode
+          removePhi(source: node, in: succ)
+          predecessors[succ]?.remove(node)
         }
       }
-      successors.removeValue(forKey: next)
     }
+  }
+
+  private mutating func removePhi(source: Node, in successor: Node) {
+    var succCode = nodeCode[successor]!
+    for (i, var inst) in succCode.instructions.enumerated() {
+      if case .phi(let target, var sources) = inst.op, sources[source] != nil {
+        sources.removeValue(forKey: source)
+        inst.op = .phi(target, sources)
+        succCode.instructions[i] = inst
+      }
+    }
+    nodeCode[successor] = succCode
   }
 
   /// Remove variable definitions that have no uses.

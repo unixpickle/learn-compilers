@@ -1,0 +1,28 @@
+CFG(
+  fn main {
+    node6:
+      .callAndStore(
+        target=SSAVariable(Variable(name=x, type=int, isArgument=false, pos=examples/mul_add/code:13:3), version=0)
+        fn=Function(name=getc, args=[] ret=Optional(int)),
+        args=[
+        ]
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=result, type=int, isArgument=false, pos=examples/mul_add/code:2:3), version=1)
+        fn=Function(name=mul, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=x, type=int, isArgument=false, pos=examples/mul_add/code:13:3), version=0)),
+          .constInt(2)
+        ]
+      )
+      .callAndStore(
+        target=SSAVariable(Variable(name=result, type=int, isArgument=false, pos=examples/mul_add/code:2:3), version=3)
+        fn=Function(name=add, args=[int, int] ret=Optional(int)),
+        args=[
+          .variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=examples/mul_add/code:2:3), version=1)),
+          .constInt(3)
+        ]
+      )
+      .returnValue(.variable(SSAVariable(Variable(name=result, type=int, isArgument=false, pos=examples/mul_add/code:2:3), version=3)))
+  }
+)

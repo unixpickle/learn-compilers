@@ -131,6 +131,81 @@ import Testing
   checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
 }
 
+@Test func testBasicOptimizationBranchElimination() throws {
+  let code = """
+    fn mul_add(x: int, y: int, z: int) -> int {
+      result: int = x
+      if? (1) {
+        result = mul(result, y)
+      }
+      if? (0) {
+        result = add(result, z)
+      }
+      return!(result)
+    }
+    """
+
+  func containsPhi(cfg: CFG) -> Bool {
+    for (_, code) in cfg.nodeCode {
+      for inst in code.instructions {
+        if case .phi = inst.op {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  let naiveCFG = try codeToCFG(code, opt: .none)
+  verifyCFGInvariants(cfg: naiveCFG)
+  #expect(containsPhi(cfg: naiveCFG), "naive CFG shouldn't optimize away unused phi")
+  let optCFGs = try codeToCFGs(code, opt: .basic, count: 2)
+  let optCFG = optCFGs[0]
+  verifyCFGInvariants(cfg: optCFG)
+  #expect(!containsPhi(cfg: optCFG), "optimized CFG should optimize away unused phi")
+
+  checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
+}
+
+@Test func testBasicOptimizationBranchEliminationLoops() throws {
+  let code = """
+    fn mul_add(x: int, y: int, z: int) -> int {
+      result: int = x
+      if? (1) {
+        result = mul(result, y)
+      }
+      if? (0) {
+        x: int = result
+        while? (lt(result, add(x, z))) {
+          result = add(result, 1)
+        }
+      }
+      return!(result)
+    }
+    """
+
+  func containsPhi(cfg: CFG) -> Bool {
+    for (_, code) in cfg.nodeCode {
+      for inst in code.instructions {
+        if case .phi = inst.op {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  let naiveCFG = try codeToCFG(code, opt: .none)
+  verifyCFGInvariants(cfg: naiveCFG)
+  #expect(containsPhi(cfg: naiveCFG), "naive CFG shouldn't optimize away unused phi")
+  let optCFGs = try codeToCFGs(code, opt: .basic, count: 2)
+  let optCFG = optCFGs[0]
+  verifyCFGInvariants(cfg: optCFG)
+  #expect(!containsPhi(cfg: optCFG), "optimized CFG should optimize away unused phi")
+
+  checkCFGEqual(cfg1: optCFG, cfg2: optCFGs[1])
+}
+
 @Test func testInlineBasicOptimizationRemovesNestedFunctions() throws {
   let code = """
     fn foo_0(x: int) -> int {
