@@ -1,0 +1,77 @@
+fn last_pattern(pattern: str, n: int, cur_idx: int) -> int {
+  // Construct the bit pattern ending at cur_idx
+  result: int = 0
+  off: int = 0
+  while? (lt(off, n)) {
+    if? (str_get(pattern, mod(sub(cur_idx, off), len(pattern)))) {
+      result = or(result, shl(1, off))
+    }
+    off = add(off, 1)
+  }
+  return!(result)
+}
+
+fn print_pattern(pattern: str) {
+  i: int = 0
+  while? (lt(i, len(pattern))) {
+    putc(add(str_get("0", 0), str_get(pattern, i)))
+    i = add(i, 1)
+  }
+  println("")
+}
+
+fn try(pattern: str, n: int, seen_bitmap: str, cur_idx: int, value: int) {
+  str_set(pattern, cur_idx, value)
+  pat: int = last_pattern(pattern, n, cur_idx)
+  if? (str_get(seen_bitmap, pat)) {
+    return!()
+  }
+  str_set(seen_bitmap, pat, 1)
+  search(pattern, n, seen_bitmap, add(cur_idx, 1))
+  str_set(seen_bitmap, pat, 0)
+}
+
+fn search(pattern: str, n: int, seen_bitmap: str, cur_idx: int) {
+  if? (lt(cur_idx, len(pattern))) {
+    try(pattern, n, seen_bitmap, cur_idx, 0)
+    try(pattern, n, seen_bitmap, cur_idx, 1)
+    return!()
+  }
+
+  // We are now verifying the cycled patterns
+  pat: int = last_pattern(pattern, n, cur_idx)
+  if? (str_get(seen_bitmap, pat)) {
+    return!()
+  }
+  if? (eq(cur_idx, add(len(pattern), sub(n, 2)))) {
+    print_pattern(pattern)
+    return!()
+  }
+
+  // Continue checking future patterns in the cycle.
+  str_set(seen_bitmap, pat, 1)
+  search(pattern, n, seen_bitmap, add(cur_idx, 1))
+  str_set(seen_bitmap, pat, 0)
+}
+
+fn str_alloc_zero(n: int) -> str {
+  result: str = str_alloc(n)
+  i: int = 0
+  while? (lt(i, n)) {
+    str_set(result, i, 0)
+    i = add(i, 1)
+  }
+  return!(result)
+}
+
+fn main() -> int {
+  n: int = 5
+  seen_bitmap: str = str_alloc_zero(shl(1, n))
+  pattern: str = str_alloc_zero(shl(1, n))
+
+  // Always start with the string of all zeros, so cur_idx = n
+  str_set(seen_bitmap, 0, 1)
+  search(pattern, n, seen_bitmap, n)
+
+  return!(0)
+}
