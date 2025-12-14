@@ -461,6 +461,9 @@ public struct BackendAArch64: Backend {
   }
 
   internal func requiresActualCall(fn: Function) -> Bool {
+    if comparisons.fnToOp[fn] != nil {
+      return false
+    }
     guard let builtIn = fn.builtIn else {
       return true
     }
