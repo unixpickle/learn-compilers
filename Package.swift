@@ -17,6 +17,9 @@ let package = Package(
       name: "Compile",
       targets: ["Compile"]),
     .executable(
+      name: "BuildParser",
+      targets: ["BuildParser"]),
+    .executable(
       name: "Interpret",
       targets: ["Interpret"]),
   ],
@@ -30,11 +33,21 @@ let package = Package(
       dependencies: [
         // Make LearnCompilers depend on LearnParsers
         .product(name: "LearnParsers", package: "learn-parsers")
+      ],
+      resources: [
+        .process("Resources")
       ]
     ),
     .executableTarget(
       name: "Compile",
       dependencies: ["LearnCompilers"]
+    ),
+    .executableTarget(
+      name: "BuildParser",
+      dependencies: [
+        "LearnCompilers",
+        .product(name: "LearnParsers", package: "learn-parsers"),
+      ]
     ),
     .executableTarget(
       name: "Interpret",

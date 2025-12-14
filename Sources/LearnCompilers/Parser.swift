@@ -13,7 +13,12 @@ public final class Parser {
         return p
       }
       do {
-        p = try LR1Parser(grammar: SimpleGrammar())
+        guard let fileURL = Bundle.module.url(forResource: "parser", withExtension: "plist") else {
+          fatalError("could not find parser.plist in Resources")
+        }
+        let data = try Data(contentsOf: fileURL)
+        let decoder = PropertyListDecoder()
+        p = try decoder.decode(ParserType.self, from: data)
       } catch {
         fatalError("ERROR initializing shared parser: \(error)")
       }
@@ -54,7 +59,7 @@ public final class Parser {
   private init() {}
 }
 
-public enum SimpleGrammarKeyword: SymbolProto {
+public enum SimpleGrammarKeyword: SymbolProto, Codable {
   case codeFile
   case typeIdentifier
   case varDecl
