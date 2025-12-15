@@ -3,18 +3,25 @@ import Testing
 
 @testable import LearnCompilers
 
-@Test func testBackendAArch64BasicPrint() throws {
+enum CodeBackend {
+  case aarch64
+  case llvm
+}
+
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsBasicPrint(backend: CodeBackend) throws {
   let code = """
     fn main() -> int {
       print("hello, world!\\n")
       return!(0)
     }
     """
-  let output = try runCode(code: code, stdin: Data(), opt: .basic)
+  let output = try runCode(code: code, stdin: Data(), opt: .basic, backend: backend)
   #expect(output == Data("hello, world!\n".utf8))
 }
 
-@Test func testBackendAArch64Factorize() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsFactorize(backend: CodeBackend) throws {
   let code = """
     fn smallest_factor(number: int) -> int {
       i: int = 2
@@ -63,12 +70,13 @@ import Testing
     }
     """
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data("103928\n".utf8), opt: opt)
+    let output = try runCode(code: code, stdin: Data("103928\n".utf8), opt: opt, backend: backend)
     #expect(output == Data("enter a positive integer:\n103928 = 2 * 2 * 2 * 11 * 1181\n".utf8))
   }
 }
 
-@Test func testBackendAArch64ManyArgsAndVars() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsManyArgsAndVars(backend: CodeBackend) throws {
   let code = """
     fn print_char_codes(a: int, b: int, c: int, d: int, e: int, f: int, g: int, h: int, i: int, j: int, k: int, after: str) {
       putc(a)
@@ -102,12 +110,14 @@ import Testing
     }
     """
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data("abcdefghijk".utf8), opt: opt)
+    let output = try runCode(
+      code: code, stdin: Data("abcdefghijk".utf8), opt: opt, backend: backend)
     #expect(output == Data("abcdefghijk are some letters\n".utf8))
   }
 }
 
-@Test func testBackendAArch64LargeConstants() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsLargeConstants(backend: CodeBackend) throws {
   let code = """
     fn main() -> int {
       x: int = 12345678901
@@ -123,12 +133,13 @@ import Testing
     }
     """
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data(), opt: opt)
+    let output = try runCode(code: code, stdin: Data(), opt: opt, backend: backend)
     #expect(output == Data("12345678901\n16776978\n65535\n".utf8))
   }
 }
 
-@Test func testBackendAArch64Shifts() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsShifts(backend: CodeBackend) throws {
   let code = """
     fn main() -> int {
       while? (1) {
@@ -160,12 +171,13 @@ import Testing
     expectedOut += "\(x >> shift)\n"
   }
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data(inputs.utf8), opt: opt)
+    let output = try runCode(code: code, stdin: Data(inputs.utf8), opt: opt, backend: backend)
     #expect(output == Data(expectedOut.utf8))
   }
 }
 
-@Test func testBackendAArch64Brainfck() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsBrainfck(backend: CodeBackend) throws {
   let code = """
     fn comment(x: str) {}
 
@@ -397,12 +409,13 @@ import Testing
       >>>++++[<++++++++>-]<+.
     """
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt, backend: backend)
     #expect(output == Data("Hello, World!".utf8))
   }
 }
 
-@Test func testBackendAArch64VariablePermutations() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsVariablePermutations(backend: CodeBackend) throws {
   let code = """
     fn permutation(x: str) {
       a: int = str_get(x, 0)
@@ -608,13 +621,14 @@ import Testing
   expectedOutput += Data("\n".utf8)
 
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt, backend: backend)
     #expect(
       output == expectedOutput, "output is \(Array(output)), expected \(Array(expectedOutput))")
   }
 }
 
-@Test func testBackendAArch64Comparisons() throws {
+@Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsComparisons(backend: CodeBackend) throws {
   let code = """
     fn main() -> int {
       while? (1) {
@@ -686,7 +700,7 @@ import Testing
   )
 
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
-    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt)
+    let output = try runCode(code: code, stdin: Data(input.utf8), opt: opt, backend: backend)
     #expect(
       output == expectedOutput,
       "output is \(Array(output)), expected \(Array(expectedOutput))"
@@ -696,16 +710,17 @@ import Testing
 
 enum CompileError: Error {
   case clangError(String)
+  case llcError(String)
 }
 
-func runCode(code: String, stdin: Data, opt: OptLevel) throws -> Data {
+func runCode(code: String, stdin: Data, opt: OptLevel, backend: CodeBackend) throws -> Data {
   let baseURL = FileManager.default.temporaryDirectory
   let uniqueName = UUID().uuidString
   let dirURL = baseURL.appendingPathComponent("lc-\(uniqueName)", isDirectory: true)
   try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: dirURL) }
 
-  try compileCode(code: code, tmpDir: dirURL, opt: opt)
+  try compileCode(code: code, tmpDir: dirURL, opt: opt, backend: backend)
 
   let exeURL = dirURL.appending(component: "a.out")
 
@@ -742,7 +757,7 @@ func runCode(code: String, stdin: Data, opt: OptLevel) throws -> Data {
   return finalData
 }
 
-func compileCode(code: String, tmpDir: URL, opt: OptLevel) throws {
+func compileCode(code: String, tmpDir: URL, opt: OptLevel, backend: CodeBackend) throws {
   let match = try Parser.parse(code)
   var ast = AST(match: match)
 
@@ -767,18 +782,40 @@ func compileCode(code: String, tmpDir: URL, opt: OptLevel) throws {
   }
   try cfg.checkMissingReturns()
 
-  let asmCode = try BackendAArch64().compileAssembly(cfg: cfg)
-  let asmCode2 = try BackendAArch64().compileAssembly(cfg: cfg)
+  let b: Backend =
+    switch backend {
+    case .aarch64: BackendAArch64()
+    case .llvm: BackendLLVM()
+    }
+  let asmCode = try b.compileAssembly(cfg: cfg)
+  let asmCode2 = try b.compileAssembly(cfg: cfg)
   #expect(asmCode == asmCode2, "non-deterministic output")
 
   let asmPath = tmpDir.appending(component: "program.s").path()
   let binPath = tmpDir.appending(component: "a.out").path()
 
-  try asmCode.write(toFile: asmPath, atomically: true, encoding: .utf8)
+  if backend == .llvm {
+    let llPath = tmpDir.appending(component: "program.ll").path()
+    try asmCode.write(toFile: llPath, atomically: true, encoding: .utf8)
+    try runCommand(
+      path: "/opt/homebrew/opt/llvm/bin/llc",
+      args: [llPath],
+      errFn: CompileError.llcError
+    )
+  } else {
+    try asmCode.write(toFile: asmPath, atomically: true, encoding: .utf8)
+  }
+  try runCommand(
+    path: "/usr/bin/clang",
+    args: [asmPath, "-o", binPath],
+    errFn: CompileError.clangError
+  )
+}
 
+func runCommand(path: String, args: [String], errFn: (String) -> Error) throws {
   let process = Process()
-  process.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
-  process.arguments = [asmPath, "-o", binPath]
+  process.executableURL = URL(fileURLWithPath: path)
+  process.arguments = args
 
   let pipe = Pipe()
   defer {
@@ -796,7 +833,7 @@ func compileCode(code: String, tmpDir: URL, opt: OptLevel) throws {
 
   if process.terminationStatus != 0 {
     let msg = String(data: outputData.finalData, encoding: .utf8) ?? "Unknown clang error"
-    throw CompileError.clangError(msg)
+    throw errFn(msg)
   }
 }
 

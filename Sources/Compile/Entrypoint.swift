@@ -51,6 +51,8 @@ struct CompileApp {
       let outputString =
         if outputPath.hasSuffix(".cfg.txt") {
           cfg.description
+        } else if outputPath.hasSuffix(".ll") {
+          try BackendLLVM().compileAssembly(cfg: cfg)
         } else {
           try BackendAArch64().compileAssembly(cfg: cfg)
         }

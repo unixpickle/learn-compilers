@@ -116,7 +116,7 @@ public enum BuiltInFunction: Hashable, Sendable {
     switch builtIn {
     case .add:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
-        return .constInt(x + y)
+        return .constInt(x &+ y)
       } else if case .constInt(0) = args[0] {
         return args[1]
       } else if case .constInt(0) = args[1] {
@@ -124,13 +124,13 @@ public enum BuiltInFunction: Hashable, Sendable {
       }
     case .sub:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
-        return .constInt(x - y)
+        return .constInt(x &- y)
       } else if case .constInt(0) = args[1] {
         return args[0]
       }
     case .mul:
       if case .constInt(let x) = args[0], case .constInt(let y) = args[1] {
-        return .constInt(x * y)
+        return .constInt(x &* y)
       } else if case .constInt(1) = args[1] {
         return args[0]
       } else if case .constInt(1) = args[0] {

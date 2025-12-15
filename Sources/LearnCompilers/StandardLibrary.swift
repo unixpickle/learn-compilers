@@ -83,7 +83,13 @@ public final class StandardLibrary {
 
     fn str(x: int) -> str {
       if? (lt(x, 0)) {
-        pos_str: str = str(sub(0, x))
+        neg: int = sub(0, x)
+        if? (lt(neg, 0)) {
+          // This is the only case where negating the value yields
+          // another negative value.
+          return!(str_copy("-9223372036854775808"))
+        }
+        pos_str: str = str(neg)
         result: str = concat("-", pos_str)
         str_free(pos_str)
         return!(result)

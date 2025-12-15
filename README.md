@@ -113,7 +113,7 @@ This is used in the standard library. For example, the `not` function can take b
 
 ## Running code
 
-To run `C??` code, you can either compile the code to a supported architecture (currently, only AArch64 for M-series Macs), or run the compiler's intermediate representation directly inside an interpreter.
+To run `C??` code, you can either compile the code to a supported target (currently AArch64 assembly for M-series Macs, or LLVM IR to target other architectures), or run the compiler's intermediate representation directly inside an interpreter.
 
 For example, let's run the [integer factorization example](examples/factorize/code). We can run it in the interpreter like so
 
@@ -130,6 +130,8 @@ clang out.s
 ```
 
 If you run the `Compile` command with an output path that ends with `.cfg.txt`, then instead of assembly, you will get a file containing a description of the control flow graph (the main intermediate representation used by the compiler).
+
+If you pass an output filename with the extension `.ll`, then the `Compile` command will produce LLVM IR.
 
 ## How the compiler works
 

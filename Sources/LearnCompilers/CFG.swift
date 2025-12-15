@@ -1,5 +1,7 @@
 public struct CFG {
 
+  public static let ReturnValueName: String = "<return value>"
+
   public struct SSAVariable: Hashable {
     public let variable: Variable
     public var version: Int?
@@ -567,7 +569,7 @@ public struct CFG {
     if let retType = fn.retType {
       returnVar = Variable(
         declarationPosition: retType.position!,
-        name: "<return value>",
+        name: CFG.ReturnValueName,
         type: retType.retType.dataType
       )
       nodeCode[end]!.instructions.append(
