@@ -59,8 +59,8 @@ public struct BackendAArch64: Backend {
     case and(Register, Register, RegOrInt)
     case orr(Register, Register, RegOrInt)
     case eor(Register, Register, RegOrInt)
-    case mul(Register, Register, RegOrInt)
-    case sdiv(Register, Register, RegOrInt)
+    case mul(Register, Register, Register)
+    case sdiv(Register, Register, Register)
     case msub(Register, Register, Register, Register)
     case lsl(Register, Register, RegOrInt)
     case asr(Register, Register, RegOrInt)
@@ -589,25 +589,24 @@ public struct BackendAArch64: Backend {
       fatalError("check should have been replaced with comparison call")
     case .call(let fn, let args):
       if let comparisonOp = comparisons.fnToOp[fn] {
-        var regInsts = [CodeLine]()
-        var regs = [Register]()
-        for (i, arg) in args.enumerated() {
-          let (insts, reg) = argumentToRegister(
-            stringTable: &stringTable,
-            frame: frame,
-            argument: arg,
-            defaultReg: .x(i)
-          )
-          regInsts.append(contentsOf: insts)
-          regs.append(reg)
-        }
+        let (insts0, reg0) = argumentToRegister(
+          stringTable: &stringTable,
+          frame: frame,
+          argument: args[0],
+          defaultReg: .x(0)
+        )
         switch comparisonOp {
         case .checkStr:
-          return regInsts + [.ldr(.x(8), (regs[0], 0)), .cmp(.x(8), .int(0))]
+          return insts0 + [.ldr(.x(8), (reg0, 0)), .cmp(.x(8), .int(0))]
         case .checkInt:
-          return regInsts + [.cmp(regs[0], .int(0))]
+          return insts0 + [.cmp(reg0, .int(0))]
         default:
-          return regInsts + [.cmp(regs[0], .reg(regs[1]))]
+          let (insts1, arg1) = intArgumentToRegOrInt(
+            frame: frame,
+            argument: args[1],
+            defaultReg: .x(1)
+          )
+          return insts0 + insts1 + [.cmp(reg0, arg1)]
         }
       }
 
@@ -661,24 +660,24 @@ public struct BackendAArch64: Backend {
       var symbol: String
       switch fn.builtIn {
       case .add:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.add(dst, a, .reg(b))]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.add(dst, a, b)]
         }
       case .sub:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.sub(dst, a, .reg(b))]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.sub(dst, a, b)]
         }
       case .and:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.and(dst, a, .reg(b))]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.and(dst, a, b)]
         }
       case .or:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.orr(dst, a, .reg(b))]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.orr(dst, a, b)]
         }
       case .xor:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.eor(dst, a, .reg(b))]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.eor(dst, a, b)]
         }
       case .shl:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
@@ -690,27 +689,27 @@ public struct BackendAArch64: Backend {
         }
       case .mul:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.mul(dst, a, .reg(b))]
+          [.mul(dst, a, b)]
         }
       case .div:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.sdiv(dst, a, .reg(b))]
+          [.sdiv(dst, a, b)]
         }
       case .mod:
         return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.sdiv(.x(2), a, .reg(b)), .msub(dst, .x(2), b, a)]
+          [.sdiv(.x(2), a, b), .msub(dst, .x(2), b, a)]
         }
       case .lt:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .cset(dst, "lt")]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, b), .cset(dst, "lt")]
         }
       case .gt:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .cset(dst, "gt")]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, b), .cset(dst, "gt")]
         }
       case .eqInt:
-        return encodeBinaryOp(frame: frame, args: args, target: target) { dst, a, b in
-          [.cmp(a, .reg(b)), .cset(dst, "eq")]
+        return encodeBinaryOpImm(frame: frame, args: args, target: target) { dst, a, b in
+          [.cmp(a, b), .cset(dst, "eq")]
         }
       case .notInt:
         let (instsIn, source) = argumentToRegister(
@@ -793,6 +792,18 @@ public struct BackendAArch64: Backend {
   ) -> [CodeLine] {
     let (inst1, r1) = intArgumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
     let (inst2, r2) = intArgumentToRegister(frame: frame, argument: args[1], defaultReg: .x(1))
+    let (inst3, regOut) = writableVariableRegister(frame: frame, target: target)
+    return inst1 + inst2 + builder(regOut, r1, r2) + inst3
+  }
+
+  internal func encodeBinaryOpImm(
+    frame: Frame,
+    args: [CFG.Argument],
+    target: CFG.SSAVariable,
+    builder: (Register, Register, RegOrInt) -> [CodeLine]
+  ) -> [CodeLine] {
+    let (inst1, r1) = intArgumentToRegister(frame: frame, argument: args[0], defaultReg: .x(0))
+    let (inst2, r2) = intArgumentToRegOrInt(frame: frame, argument: args[1], defaultReg: .x(1))
     let (inst3, regOut) = writableVariableRegister(frame: frame, target: target)
     return inst1 + inst2 + builder(regOut, r1, r2) + inst3
   }
@@ -916,6 +927,18 @@ public struct BackendAArch64: Backend {
     default:
       return intArgumentToRegister(frame: frame, argument: argument, defaultReg: defaultReg)
     }
+  }
+
+  internal func intArgumentToRegOrInt(
+    frame: Frame,
+    argument: CFG.Argument,
+    defaultReg: Register
+  ) -> ([CodeLine], RegOrInt) {
+    if case .constInt(let x) = argument, x >= 0 && x < 4096 {
+      return ([], .int(UInt16(x)))
+    }
+    let (code, reg) = intArgumentToRegister(frame: frame, argument: argument, defaultReg: defaultReg)
+    return (code, .reg(reg))
   }
 
   internal func intArgumentToRegister(

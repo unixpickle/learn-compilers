@@ -119,6 +119,15 @@ func testBackendsManyArgsAndVars(backend: CodeBackend) throws {
 @Test(arguments: [CodeBackend.aarch64, .llvm])
 func testBackendsLargeConstants(backend: CodeBackend) throws {
   let code = """
+    fn my_add(x: int) -> int {
+      return!(add(x, 32769))
+    }
+    fn my_add_4096(x: int) -> int {
+      return!(add(x, 4096))
+    }
+    fn my_add_4095(x: int) -> int {
+      return!(add(x, 4095))
+    }
     fn main() -> int {
       x: int = 12345678901
       print_int(x)
@@ -129,12 +138,29 @@ func testBackendsLargeConstants(backend: CodeBackend) throws {
       x = 65535
       print_int(x)
       println("")
+      x = 8193
+      print_int(x)
+      println("")
+      x = 32769
+      print_int(x)
+      println("")
+      x = my_add(x)
+      print_int(x)
+      println("")
+      x = 32769
+      x = my_add_4096(x)
+      print_int(x)
+      println("")
+      x = 32769
+      x = my_add_4095(x)
+      print_int(x)
+      println("")
       return!(0)
     }
     """
   for opt in [OptLevel.none, .basic, .basicWithInlining] {
     let output = try runCode(code: code, stdin: Data(), opt: opt, backend: backend)
-    #expect(output == Data("12345678901\n16776978\n65535\n".utf8))
+    #expect(output == Data("12345678901\n16776978\n65535\n8193\n32769\n65538\n36865\n36864\n".utf8))
   }
 }
 
