@@ -6,6 +6,7 @@ public struct Comparisons {
     case checkStr
     case checkInt
     case eqInt
+    case notEqInt
     case lt
     case gt
   }
@@ -15,7 +16,7 @@ public struct Comparisons {
 
   public init() {
     var ops = [Op: Function]()
-    for op in [Op.eqInt, .lt, .gt] {
+    for op in [Op.eqInt, .notEqInt, .lt, .gt] {
       ops[op] = Function(
         declarationPosition: Position(fileID: ""),
         name: "\(op)",
@@ -37,9 +38,7 @@ public struct Comparisons {
     fnToOp = Dictionary(uniqueKeysWithValues: ops.map { ($0.value, $0.key) })
   }
 
-  /// Convert .check ops (and possibly preceding function calls) into comparisons.
-  public func translateOps(cfg: CFG) -> CFG {
-    var cfg = cfg
+  internal func countUsage(cfg: CFG) -> [CFG.SSAVariable: Int] {
     var useCount = [CFG.SSAVariable: Int]()
     for code in cfg.nodeCode.values {
       for inst in code.instructions {
@@ -48,6 +47,13 @@ public struct Comparisons {
         }
       }
     }
+    return useCount
+  }
+
+  /// Convert .check ops (and possibly preceding function calls) into comparisons.
+  public func translateOps(cfg: CFG) -> CFG {
+    var cfg = cfg
+    let useCount = countUsage(cfg: cfg)
 
     for (node, code) in Array(cfg.nodeCode) {
       guard case .check(let arg) = code.instructions.last?.op else {
@@ -74,6 +80,9 @@ public struct Comparisons {
           case .gt:
             callOp = .call(opToFn[.gt]!, args)
             newCode.instructions.removeLast()
+          case .notInt:
+            callOp = .call(opToFn[.eqInt]!, [args[0], .constInt(0)])
+            newCode.instructions.removeLast()
           default: ()
           }
         }
@@ -83,6 +92,34 @@ public struct Comparisons {
           position: code.instructions.last!.position,
           op: callOp
         ))
+      cfg.nodeCode[node] = newCode
+    }
+    return cfg
+  }
+
+  /// Invert any branch predicate equating something to a constant.
+  /// This should be called after translateOps().
+  public func invertConstEqBranches(cfg: CFG) -> CFG {
+    var cfg = cfg
+    for (node, code) in Array(cfg.nodeCode) {
+      guard case .branch(let ifFalse, let ifTrue) = cfg.successors[node] else {
+        continue
+      }
+      guard case .call(let fn, let args) = code.instructions.last?.op else {
+        continue
+      }
+      guard case .eqInt = fnToOp[fn] else {
+        continue
+      }
+      if case .constInt = args[0] {
+      } else if case .constInt = args[1] {
+      } else {
+        continue
+      }
+
+      cfg.successors[node] = .branch(ifFalse: ifTrue, ifTrue: ifFalse)
+      var newCode = code
+      newCode.instructions[newCode.instructions.count - 1].op = .call(opToFn[.notEqInt]!, args)
       cfg.nodeCode[node] = newCode
     }
     return cfg

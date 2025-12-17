@@ -133,6 +133,16 @@ If you run the `Compile` command with an output path that ends with `.cfg.txt`, 
 
 If you pass an output filename with the extension `.ll`, then the `Compile` command will produce LLVM IR.
 
+## How fast is it?
+
+The [run_bench.sh](examples/run_bench.sh) script runs benchmarks, comparing C reference implementations to C?? with the AArch64 and LLVM backends.
+
+| Benchmark       | C (clang)         | AArch64            | LLVM              |
+|-----------------|-------------------|--------------------|-------------------|
+| **factorize**   | 0.4933 ± 0.0149   | 0.6517 ± 0.0219    | 0.6100 ± 0.0153   |
+| **prime_sieve** | 0.3033 ± 0.0189   | 0.3817 ± 0.0146    | 0.2967 ± 0.0160   |
+| **brainf_ck**   | 20.2417 ± 0.0134  | 28.4417 ± 0.0367   | 20.2350 ± 0.0340  |
+
 ## How the compiler works
 
 When you compile code, the following steps are performed:

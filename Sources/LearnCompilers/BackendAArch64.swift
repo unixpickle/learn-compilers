@@ -269,7 +269,7 @@ public struct BackendAArch64: Backend {
 
   /// Compile the graph as AArch64 assembly code.
   public func compileAssembly(cfg: CFG) throws -> String {
-    let cfg = comparisons.translateOps(cfg: cfg)
+    let cfg = comparisons.invertConstEqBranches(cfg: comparisons.translateOps(cfg: cfg))
     let liveness = Liveness(cfg: cfg)
     var strTable = StringTable()
     let sortedFuncs = cfg.functions.keys.sorted { (fn1, fn2) in
@@ -534,6 +534,8 @@ public struct BackendAArch64: Backend {
       return [.bEq(ifFalse), .b(ifTrue)]
     case .eqInt:
       return [.bNe(ifFalse), .b(ifTrue)]
+    case .notEqInt:
+      return [.bEq(ifFalse), .b(ifTrue)]
     case .lt:
       return [.bGe(ifFalse), .b(ifTrue)]
     case .gt:
