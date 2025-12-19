@@ -21,6 +21,22 @@ func testBackendsBasicPrint(backend: CodeBackend) throws {
 }
 
 @Test(arguments: [CodeBackend.aarch64, .llvm])
+func testBackendsReverseManyVars(backend: CodeBackend) throws {
+  var code = "fn main() -> int {\n"
+  for i in 0..<128 {
+    code += "  x\(i): int = getc()\n"
+  }
+  for i in (0..<128).reversed() {
+    code += "  putc(x\(i))\n"
+  }
+  code += "  return!(0)\n"
+  code += "}"
+  let input = (0..<128).shuffled().map { UInt8($0) }
+  let output = try runCode(code: code, stdin: Data(input), opt: .basic, backend: backend)
+  #expect(output == Data(input.reversed()))
+}
+
+@Test(arguments: [CodeBackend.aarch64, .llvm])
 func testBackendsFactorize(backend: CodeBackend) throws {
   let code = """
     fn smallest_factor(number: int) -> int {

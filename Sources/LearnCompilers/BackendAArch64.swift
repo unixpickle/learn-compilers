@@ -189,13 +189,21 @@ public struct BackendAArch64: Backend {
     let stackVarCount: Int
     let backupRegisters: [Register]
 
+    private func stackNegAddress(_ idx: Int) -> Addr {
+      if (idx + 1) * 8 <= 256 {
+        (.x(29), -(idx + 1) * 8)
+      } else {
+        (.sp, stackAllocation * 8 - (idx + 1) * 8)
+      }
+    }
+
     func stackVarAddress(_ idx: Int) -> Addr {
-      (.x(29), -(idx + 1) * 8)
+      stackNegAddress(idx + backupRegisters.count)
     }
 
     func backupRegisterAddresses() -> [(Register, Addr)] {
       backupRegisters.enumerated().map { (i, reg) in
-        (reg, (.x(29), -(stackVarCount + i + 1) * 8))
+        (reg, stackNegAddress(i))
       }
     }
   }
@@ -413,8 +421,8 @@ public struct BackendAArch64: Backend {
       stackAllocation += 1
     }
 
-    if stackAllocation * 8 + 16 >= 0x10000 {
-      throw CompileError.stackOverflow("stack allocations for function \(fn) exceed 64k")
+    if stackAllocation * 8 + 16 >= 4096 {
+      throw CompileError.stackOverflow("stack allocations for function \(fn) exceed 4k")
     }
 
     return Frame(
@@ -496,12 +504,19 @@ public struct BackendAArch64: Backend {
       .symbol(symbolName),
       .cfiStartProc,
       .sub(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))),
-      .stp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)),
+    ]
+    if frame.stackAllocation * 8 < 256 {
+      result.append(.stp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)))
+    } else {
+      result.append(.str(.x(29), (.sp, frame.stackAllocation * 8)))
+      result.append(.str(.x(30), (.sp, frame.stackAllocation * 8 + 8)))
+    }
+    result.append(contentsOf: [
       .add(.x(29), .sp, .int(UInt16(frame.stackAllocation * 8))),
       .cfiDefCFA(.x(29), 16),
       .cfiOffset(.x(30), -8),
       .cfiOffset(.x(29), -16),
-    ]
+    ])
     for (reg, addr) in frame.backupRegisterAddresses() {
       result.append(.str(reg, addr))
     }
@@ -514,7 +529,12 @@ public struct BackendAArch64: Backend {
     for (reg, addr) in frame.backupRegisterAddresses() {
       result.append(.ldr(reg, addr))
     }
-    result.append(.ldp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)))
+    if frame.stackAllocation * 8 < 256 {
+      result.append(.ldp(.x(29), .x(30), (.sp, frame.stackAllocation * 8)))
+    } else {
+      result.append(.ldr(.x(29), (.sp, frame.stackAllocation * 8)))
+      result.append(.ldr(.x(30), (.sp, frame.stackAllocation * 8 + 8)))
+    }
     result.append(.add(.sp, .sp, .int(UInt16(frame.stackAllocation * 8 + 16))))
     result.append(.ret)
     result.append(.cfiEndProc)
@@ -939,7 +959,8 @@ public struct BackendAArch64: Backend {
     if case .constInt(let x) = argument, x >= 0 && x < 4096 {
       return ([], .int(UInt16(x)))
     }
-    let (code, reg) = intArgumentToRegister(frame: frame, argument: argument, defaultReg: defaultReg)
+    let (code, reg) = intArgumentToRegister(
+      frame: frame, argument: argument, defaultReg: defaultReg)
     return (code, .reg(reg))
   }
 
