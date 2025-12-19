@@ -1,0 +1,361 @@
+fn f(x: int) -> int {
+  return!(shl(x, 24))
+}
+
+fn f_one() -> int {
+  return!(shl(1, 24))
+}
+
+fn f_inf() -> int {
+  return!(shl(1, 55))
+}
+
+fn f_mul(a: int, b: int) -> int {
+  return!(shr(mul(a, b), 24))
+}
+
+fn f_square(a: int) -> int {
+  return!(f_mul(a, a))
+}
+
+fn f_div(a: int, b: int) -> int {
+  return!(div(shl(a, 24), b))
+}
+
+fn f_frac(num: int, den: int) -> int {
+  return!(div(f(num), den))
+}
+
+fn f_to_int(f: int) -> int {
+  return!(shr(f, 24))
+}
+
+fn neg(x: int) -> int {
+  return!(sub(0, x))
+}
+
+fn min(a: int, b: int) -> int {
+  if? (lt(a, b)) {
+    return!(a)
+  }
+  return!(b)
+}
+
+fn max(a: int, b: int) -> int {
+  if? (gt(a, b)) {
+    return!(a)
+  }
+  return!(b)
+}
+
+fn f_sqrt(x: int) -> int {
+  if? (lt(x, 0)) {
+    return!(0)
+  }
+  if? (eq(x, 0)) {
+    return!(0)
+  }
+  g: int = add(shr(x, 1), f_one())
+  i: int = 0
+  while? (lt(i, 8)) {
+    if? (eq(g, 0)) {
+      g = f_one()
+    }
+    term: int = f_div(x, g)
+    g = shr(add(g, term), 1)
+    i = add(i, 1)
+  }
+  return!(g)
+}
+
+fn v_dot(ax_f: int, ay_f: int, az_f: int, bx_f: int, by_f: int, bz_f: int) -> int {
+  return!(add(add(f_mul(ax_f, bx_f), f_mul(ay_f, by_f)), f_mul(az_f, bz_f)))
+}
+
+fn v_dot_self(x_f: int, y_f: int, z_f: int) -> int {
+  return!(add(add(f_square(x_f), f_square(y_f)), f_square(z_f)))
+}
+
+fn emit_u8(b: int) {
+  putc(and(b, 255))
+}
+
+fn emit_le16(x: int) {
+  emit_u8(and(x, 255))
+  emit_u8(and(shr(x, 8), 255))
+}
+
+fn emit_le32(x: int) {
+  emit_u8(and(x, 255))
+  emit_u8(and(shr(x, 8), 255))
+  emit_u8(and(shr(x, 16), 255))
+  emit_u8(and(shr(x, 24), 255))
+}
+
+fn store_i64(buf: str, idx: int, v: int) {
+  off: int = shl(idx, 3)
+  i: int = 0
+  while? (lt(i, 8)) {
+    str_set(buf, add(off, i), and(shr(v, mul(i, 8)), 255))
+    i = add(i, 1)
+  }
+}
+
+fn load_i64(buf: str, idx: int) -> int {
+  off: int = shl(idx, 3)
+  r: int = 0
+  i: int = 0
+  while? (lt(i, 8)) {
+    b: int = str_get(buf, add(off, i))
+    r = or(r, shl(b, mul(i, 8)))
+    i = add(i, 1)
+  }
+  return!(r)
+}
+
+fn hit_alloc() -> str {
+  return!(str_alloc(mul(7, 8)))
+}
+
+fn hit_init(h: str) {
+  store_i64(h, 0, f_inf())
+  i: int = 8
+  while? (lt(i, len(h))) {
+    str_set(h, i, 0)
+    i = add(i, 1)
+  }
+}
+
+fn hit_update(h: str, t: int, nx: int, ny: int, nz: int, cr: int, cg: int, cb: int) {
+  cur: int = load_i64(h, 0)
+  if? (lt(t, cur)) {
+    store_i64(h, 0, t)
+    store_i64(h, 1, nx)
+    store_i64(h, 2, ny)
+    store_i64(h, 3, nz)
+    store_i64(h, 4, cr)
+    store_i64(h, 5, cg)
+    store_i64(h, 6, cb)
+  }
+}
+
+fn plane_hit_t(b_f: int, nx_f: int, ny_f: int, nz_f: int, ox_f: int, oy_f: int, oz_f: int, dx_f: int, dy_f: int, dz_f: int) -> int {
+  // The normal is given by n*_f, and origin offset is b_f
+  // The ray origin and direction are o*_f and d*_f
+  // In particular, the plane is all points p such that (n dot p) = b
+
+  normal_dot_f: int = v_dot(nx_f, ny_f, nz_f, dx_f, dy_f, dz_f)
+  if? (eq(normal_dot_f, 0)) {
+    // The ray is parallel to the plane, so we do not register a hit.
+    return!(f_inf())
+  }
+  origin_dot_f: int = v_dot(nx_f, ny_f, nz_f, ox_f, oy_f, oz_f)
+
+  // Intersection is t s.t. origin_dot_f + t*normal_dot_f = b_f
+  t_f: int = f_div(sub(b_f, origin_dot_f), normal_dot_f)
+  if? (lt(t_f, 0)) {
+    return!(f_inf())
+  }
+  return!(t_f)
+}
+
+fn try_walls(hit: str, ox_f: int, oy_f: int, oz_f: int, dx_f: int, dy_f: int, dz_f: int) {
+  p1: int = f_one()
+  m1: int = sub(0, f_one())
+  size: int = f(4)
+
+  grey_f: int = f_frac(200, 255)
+
+  // Left wall (red)
+  t_f: int = plane_hit_t(neg(size), p1, 0, 0, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  hit_update(hit, t_f, p1, 0, 0, f_frac(240, 255), 0, 0)
+  // Right wall (green)
+  t_f = plane_hit_t(neg(size), m1, 0, 0, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  hit_update(hit, t_f, m1, 0, 0, 0, f_frac(240, 255), 0)
+  // Top wall
+  t_f = plane_hit_t(neg(size), 0, m1, 0, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  hit_update(hit, t_f, 0, m1, 0, grey_f, grey_f, grey_f)
+  // Bottom wall
+  t_f = plane_hit_t(neg(size), 0, p1, 0, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  hit_update(hit, t_f, 0, p1, 0, grey_f, grey_f, grey_f)
+  // Back wall
+  t_f = plane_hit_t(f(-8), 0, 0, p1, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  hit_update(hit, t_f, 0, 0, p1, grey_f, grey_f, grey_f)
+}
+
+fn try_sphere(hit: str, ox_f: int, oy_f: int, oz_f: int, dx_f: int, dy_f: int, dz_f: int) {
+  // Radius and center of the sphere
+  r_f: int = f_frac(9, 5)
+  cx_f: int = f_frac(2, 3)
+  cy_f: int = sub(f(4), r_f)
+  cz_f: int = f(-6)
+
+  // We want to find t such that || o+t*d - c ||^2 < r^2
+  sx_f: int = sub(ox_f, cx_f)
+  sy_f: int = sub(oy_f, cy_f)
+  sz_f: int = sub(oz_f, cz_f)
+  r_squared_f: int = f_square(r_f)
+  diffdot_f: int = v_dot(dx_f, dy_f, dz_f, sx_f, sy_f, sz_f)
+  d_squared_f: int = v_dot_self(dx_f, dy_f, dz_f)
+  s_sq_f: int = v_dot_self(sx_f, sy_f, sz_f)
+  term1_f: int = f_square(diffdot_f)
+  term2_f: int = f_mul(d_squared_f, sub(s_sq_f, r_squared_f))
+  disc_f: int = sub(term1_f, term2_f)
+  if? (lt(disc_f, 0)) {
+    return!()
+  }
+  offset_f: int = f_sqrt(disc_f)
+  t_f: int = f_div(sub(neg(diffdot_f), offset_f), d_squared_f)
+  if? (lt(t_f, 0)) {
+    // We are behind or inside the sphere, which shouldn't be possible.
+    return!()
+  }
+
+  // Compute collision point
+  ix_f: int = add(ox_f, f_mul(dx_f, t_f))
+  iy_f: int = add(oy_f, f_mul(dy_f, t_f))
+  iz_f: int = add(oz_f, f_mul(dz_f, t_f))
+
+  // Normal is given by direction towards collision point.
+  nx_f: int = sub(ix_f, cx_f)
+  ny_f: int = sub(iy_f, cy_f)
+  nz_f: int = sub(iz_f, cz_f)
+
+  // Normalize normal
+  n_norm_f: int = f_sqrt(v_dot_self(nx_f, ny_f, nz_f))
+  nx_f = f_div(nx_f, n_norm_f)
+  ny_f = f_div(ny_f, n_norm_f)
+  nz_f = f_div(nz_f, n_norm_f)
+
+  hit_update(hit, t_f, nx_f, ny_f, nz_f, 0, 0, f_frac(240, 255))
+}
+
+fn try_scene(hit: str, ox_f: int, oy_f: int, oz_f: int, dx_f: int, dy_f: int, dz_f: int) {
+  try_walls(hit, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+  try_sphere(hit, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+}
+
+fn emit_color(r_f: int, g_f: int, b_f: int) {
+  emit_u8(f_to_int(f_mul(b_f, f(255))))
+  emit_u8(f_to_int(f_mul(g_f, f(255))))
+  emit_u8(f_to_int(f_mul(r_f, f(255))))
+}
+
+fn shade_emit(hit: str, ox_f: int, oy_f: int, oz_f: int, dx_f: int, dy_f: int, dz_f: int) {
+  hit_init(hit)
+  try_scene(hit, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+
+  t_f: int = load_i64(hit, 0)
+  if? (eq(t_f, f_inf())) {
+    emit_color(0, 0, 0)
+    return!()
+  }
+
+  // Intersection point
+  px_f: int = add(ox_f, f_mul(dx_f, t_f))
+  py_f: int = add(oy_f, f_mul(dy_f, t_f))
+  pz_f: int = add(oz_f, f_mul(dz_f, t_f))
+
+  // Intersection normal and color
+  nx_f: int = load_i64(hit, 1)
+  ny_f: int = load_i64(hit, 2)
+  nz_f: int = load_i64(hit, 3)
+  cr_f: int = load_i64(hit, 4)
+  cg_f: int = load_i64(hit, 5)
+  cb_f: int = load_i64(hit, 6)
+
+  // Light position
+  lx_f: int = f(0)
+  ly_f: int = f(-3)
+  lz_f: int = f(0)
+
+  // Compute vector pointing from hit to light
+  loff_x_f: int = sub(lx_f, px_f)
+  loff_y_f: int = sub(ly_f, py_f)
+  loff_z_f: int = sub(lz_f, pz_f)
+  light_dist_sq_f: int = v_dot_self(loff_x_f, loff_y_f, loff_z_f)
+  light_dist_f: int = f_sqrt(light_dist_sq_f)
+
+  // Normal dot product gives us diffuse lighting
+  norm_dot_f: int = f_div(v_dot(loff_x_f, loff_y_f, loff_z_f, nx_f, ny_f, nz_f), light_dist_f)
+  if? (lt(norm_dot_f, 0)) {
+    norm_dot_f = neg(norm_dot_f)
+  }
+
+  // Compute the final light value
+  ambient: int = f_frac(1, 3)
+  power_f: int = add(ambient, norm_dot_f)
+  cr_f = min(f(1), f_mul(cr_f, power_f))
+  cg_f = min(f(1), f_mul(cg_f, power_f))
+  cb_f = min(f(1), f_mul(cb_f, power_f))
+
+  emit_color(cr_f, cg_f, cb_f)
+}
+
+fn render() {
+  W: int = 256
+  H: int = 256
+
+  row_bytes: int = mul(W, 3)
+  img_size: int = mul(row_bytes, H)
+  file_size: int = add(54, img_size)
+
+  emit_u8(66)
+  emit_u8(77)
+  emit_le32(file_size)
+  emit_le32(0)
+  emit_le32(54)
+  emit_le32(40)
+  emit_le32(W)
+  emit_le32(H)
+  emit_le16(1)
+  emit_le16(24)
+  emit_le32(0)
+  emit_le32(img_size)
+  emit_le32(0)
+  emit_le32(0)
+  emit_le32(0)
+  emit_le32(0)
+
+  ox_f: int = f(0)
+  oy_f: int = f(0)
+  oz_f: int = f(0)
+
+  hit: str = hit_alloc()
+
+  invW_f: int = f_div(f_one(), f(W))
+  invH_f: int = f_div(f_one(), f(H))
+  two_f: int = f(2)
+  half_f: int = f_frac(1, 2)
+
+  y: int = sub(H, 1)
+  while? (not(lt(y, 0))) {
+    vy_f: int = add(f(y), half_f)
+    v_norm_f: int = f_mul(vy_f, invH_f)
+    v_scaled_f: int = sub(f_mul(v_norm_f, two_f), f_one())
+
+    x: int = 0
+    while? (lt(x, W)) {
+      ux_fix_f: int = add(f(x), half_f)
+      u_norm_f: int = f_mul(ux_fix_f, invW_f)
+      u_scaled_f: int = sub(f_mul(u_norm_f, two_f), f_one())
+
+      dx_f: int = u_scaled_f
+      dy_f: int = v_scaled_f
+      dz_f: int = f_frac(-4, 5)
+
+      shade_emit(hit, ox_f, oy_f, oz_f, dx_f, dy_f, dz_f)
+
+      x = add(x, 1)
+    }
+
+    y = sub(y, 1)
+  }
+
+  str_free(hit)
+}
+
+fn main() -> int {
+  render()
+  return!(0)
+}

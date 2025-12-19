@@ -297,9 +297,8 @@ open class Interpreter {
       return .integer(args[0].integer! << args[1].integer!)
     case .shr:
       return .integer(args[0].integer! >> args[1].integer!)
-
     case .putc:
-      print(Character(UnicodeScalar(UInt8(args[0].integer!))), terminator: "")
+      putc(Int32(args[0].integer!), stdout)
       return nil
     case .getc:
       if let byte = try? FileHandle.standardInput.read(upToCount: 1),
