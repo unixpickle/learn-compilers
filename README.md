@@ -4,7 +4,7 @@ This is a compiler written for a toy C-like programming language that I call `C?
 
 ## The C?? language
 
-A values in C?? have one of two types: `int` (64-bit signed integers) and `str` (a reference to a mutable array of bytes).
+A value in C?? has one of two types: `int` (64-bit signed integers) and `str` (a reference to a mutable array of bytes).
 
 Like in C, you can create integers and strings with literals, such as `32` and `"hello"`. There are also functions in C??. For example, you can use `foo(32, "hello")` to call a function `foo` with an integer argument followed by a string argument.
 
